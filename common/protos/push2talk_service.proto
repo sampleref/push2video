@@ -1,0 +1,43 @@
+//Author: chakra
+//Google Protobuf types for push2talk
+syntax = "proto3";
+option java_package = "com.push2talk.rpc.events";
+option java_multiple_files = true;
+
+import "google/protobuf/empty.proto";
+
+service PushToTalk {
+    rpc sendPeerMessage (PeerMessageRequest) returns (PeerMessageResponse) {
+    };
+}
+
+message PeerMessageResponse {
+    string peerId = 1;
+    string message = 2;
+    Status status = 3;
+    enum Status {
+        OK = 0;
+        ERROR = 1;
+        INVALIDPEER = 2;
+    }
+}
+
+message PeerStatusMessage {
+    Status status = 1;
+    enum Status {
+        CONNECTED = 0;
+        DISCONNECTED = 1;
+    }
+}
+
+message PeerJsonMessage {
+    string messageJson = 1;
+}
+
+message PeerMessageRequest {
+    string peerId = 1;
+    oneof message {
+        PeerStatusMessage peerStatusMessage = 2;
+        PeerJsonMessage peerJsonMessage = 3;
+    }
+}
