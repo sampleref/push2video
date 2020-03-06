@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="info" monitorInterval="200">
+    <Appenders>
+        <Console name="console">
+            <!-- Flow tracing is most useful with a pattern that shows location.
+                 Below pattern outputs class, line number and method name. -->
+            <PatternLayout pattern="Signaller: %d{HH:mm:ss.SSS} %-5level %class{36} %L %M - %msg%xEx%n"/>
+        </Console>
+    </Appenders>
+    <Loggers>
+        <Logger name="*" level="info" additivity="false">
+            <appender-ref ref="console" level="info"/>
+        </Logger>
+        <Logger name="push2video" level="info" additivity="false">
+            <appender-ref ref="console" level="info"/>
+        </Logger>
+        <Root level="info" additivity="false">
+            <appender-ref ref="console"/>
+        </Root>
+    </Loggers>
+</Configuration>

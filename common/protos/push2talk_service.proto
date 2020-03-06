@@ -7,14 +7,33 @@ option java_multiple_files = true;
 import "google/protobuf/empty.proto";
 
 service PushToTalk {
+    rpc signallingStarted (SignallingStart) returns (google.protobuf.Empty) {
+    };
     rpc sendPeerMessage (PeerMessageRequest) returns (PeerMessageResponse) {
     };
+    rpc createAudioMeeting (CreateAudioMeetingRequest) returns (CreateAudioMeetingResponse) {
+    };
+    rpc checkPing (PingRequest) returns (PingResponse) {
+    };
+}
+
+message SignallingStart {
+    string hostnamePort = 1;
+}
+
+message PingRequest {
+    string message = 1;
+}
+
+message PingResponse {
+    string message = 1;
 }
 
 message PeerMessageResponse {
     string peerId = 1;
-    string message = 2;
-    Status status = 3;
+    string meetingId = 2;
+    string message = 3;
+    Status status = 4;
     enum Status {
         OK = 0;
         ERROR = 1;
@@ -27,17 +46,69 @@ message PeerStatusMessage {
     enum Status {
         CONNECTED = 0;
         DISCONNECTED = 1;
+        AUDIO_RESET = 2;
     }
 }
 
-message PeerJsonMessage {
-    string messageJson = 1;
+message SdpMessage {
+    string sdp = 1;
+    string type = 2; // type: offer/answer
+    Direction direction = 3;
+    enum Direction {
+        SENDER = 0;
+        RECEIVER = 1;
+    }
+    Endpoint endpoint = 4;
+    enum Endpoint {
+        SERVER = 0;
+        CLIENT = 1;
+    }
+    MediaType mediaType = 5;
+    enum MediaType {
+        AUDIO = 0;
+        VIDEO = 1;
+    }
+}
+
+message IceMessage {
+    string ice = 1;
+    string mLineIndex = 2;
+    Direction direction = 3;
+    enum Direction {
+        SENDER = 0;
+        RECEIVER = 1;
+    }
+    Endpoint endpoint = 4;
+    enum Endpoint {
+        SERVER = 0;
+        CLIENT = 1;
+    }
+    MediaType mediaType = 5;
+    enum MediaType {
+        AUDIO = 0;
+        VIDEO = 1;
+    }
 }
 
 message PeerMessageRequest {
     string peerId = 1;
+    string meetingId = 2;
     oneof message {
-        PeerStatusMessage peerStatusMessage = 2;
-        PeerJsonMessage peerJsonMessage = 3;
+        PeerStatusMessage peerStatusMessage = 3;
+        SdpMessage sdpMessage = 4;
+        IceMessage iceMessage = 5;
+    }
+}
+
+message CreateAudioMeetingRequest {
+    string meetingId = 1;
+}
+
+message CreateAudioMeetingResponse {
+    string meetingId = 1;
+    Status status = 2;
+    enum Status {
+        OK = 0;
+        ERROR = 1;
     }
 }

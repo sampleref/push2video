@@ -38,8 +38,8 @@ find_package(Protobuf REQUIRED)
 find_package(GRPC REQUIRED)
 
 # Use second file(GLOB PROTOS ..) while building for local binary and comment(#) first one
-file(GLOB PROTOS "${CMAKE_CURRENT_SOURCE_DIR}/protos/*.proto")
-#file(GLOB PROTOS "${CMAKE_CURRENT_SOURCE_DIR}/../common/protos/*.proto")
+#file(GLOB PROTOS "${CMAKE_CURRENT_SOURCE_DIR}/protos/*.proto")
+file(GLOB PROTOS "${CMAKE_CURRENT_SOURCE_DIR}/../common/protos/*.proto")
 
 set(PROTO_SRC_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto-src)
 file(MAKE_DIRECTORY ${PROTO_SRC_DIR})
@@ -70,7 +70,7 @@ if (WITH_TEST)
     include_directories(${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
 endif ()
 
-file(GLOB SOURCE_FILES application/*.cpp application/*.hpp application/grpc/*.cpp application/grpc/*.hpp)
+file(GLOB SOURCE_FILES application/*.cpp application/*.hpp application/*/*Impl.cpp application/*/*.hpp)
 
 link_directories(${GSTLIBS_LIBRARY_DIRS})
 
