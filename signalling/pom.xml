@@ -12,7 +12,7 @@
         <grpc.version>1.0.3</grpc.version>
         <protobuf.version>3.2.0</protobuf.version>
         <!-- Web socket server -->
-        <jetty.web.server>9.4.15.v20190215</jetty.web.server>
+        <jetty.web.server>9.4.27.v20200227</jetty.web.server>
         <log4j.version>2.8.1</log4j.version>
 
         <!-- Plugins version -->
@@ -71,7 +71,7 @@
         <dependency>
             <groupId>org.eclipse.jetty.websocket</groupId>
             <artifactId>javax-websocket-server-impl</artifactId>
-            <version>9.4.15.v20190215</version>
+            <version>9.4.27.v20200227</version>
         </dependency>
 
         <dependency>
