@@ -11,7 +11,7 @@ service PushToTalk {
     };
     rpc sendPeerMessage (PeerMessageRequest) returns (PeerMessageResponse) {
     };
-    rpc createAudioMeeting (CreateAudioMeetingRequest) returns (CreateAudioMeetingResponse) {
+    rpc createAudioChannel (CreateAudioChannelRequest) returns (CreateAudioChannelResponse) {
     };
     rpc checkPing (PingRequest) returns (PingResponse) {
     };
@@ -31,7 +31,7 @@ message PingResponse {
 
 message PeerMessageResponse {
     string peerId = 1;
-    string meetingId = 2;
+    string channelId = 2;
     string message = 3;
     Status status = 4;
     enum Status {
@@ -47,6 +47,7 @@ message PeerStatusMessage {
         CONNECTED = 0;
         DISCONNECTED = 1;
         AUDIO_RESET = 2;
+        VIDEO_RESET = 3;
     }
 }
 
@@ -92,20 +93,21 @@ message IceMessage {
 
 message PeerMessageRequest {
     string peerId = 1;
-    string meetingId = 2;
+    string channelId = 2;
     oneof message {
         PeerStatusMessage peerStatusMessage = 3;
         SdpMessage sdpMessage = 4;
         IceMessage iceMessage = 5;
     }
+    repeated string peersInChannel = 6;
 }
 
-message CreateAudioMeetingRequest {
-    string meetingId = 1;
+message CreateAudioChannelRequest {
+    string channelId = 1;
 }
 
-message CreateAudioMeetingResponse {
-    string meetingId = 1;
+message CreateAudioChannelResponse {
+    string channelId = 1;
     Status status = 2;
     enum Status {
         OK = 0;

@@ -12,24 +12,24 @@
 
 using namespace std;
 
-class WebRtcAudioPeer;
+class WebRtcPeer;
 
-typedef std::shared_ptr<WebRtcAudioPeer> WebRtcAudioPeerPtr;
+typedef std::shared_ptr<WebRtcPeer> WebRtcPeerPtr;
 
 class AudioPipelineHandler {
 
 public:
     //Attributes
-    std::string meetingId;
+    std::string channelId;
     GstElement *pipeline;
     GMainLoop *loop;
-    std::map<std::string, WebRtcAudioPeerPtr> peerAudioReceivers; //Peers receiving common audio from pipeline
-    std::map<std::string, WebRtcAudioPeerPtr> peerAudioSenders; //Peers sending audio to pipeline
+    std::map<std::string, WebRtcPeerPtr> peerAudioReceivers; //Peers receiving common audio from pipeline
+    std::map<std::string, WebRtcPeerPtr> peerAudioSenders; //Peers sending audio to pipeline
 
     //Methods
-    WebRtcAudioPeerPtr fetch_audio_sender_by_peerid(std::string peerId);
+    WebRtcPeerPtr fetch_audio_sender_by_peerid(std::string peerId);
 
-    WebRtcAudioPeerPtr fetch_audio_reciever_by_peerid(std::string peerId);
+    WebRtcPeerPtr fetch_audio_reciever_by_peerid(std::string peerId);
 
     void remove_audio_sender_by_peerid(std::string peerId);
 

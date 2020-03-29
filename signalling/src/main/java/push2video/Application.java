@@ -5,6 +5,7 @@ import push2video.bridge.GrpcWebsocketBridge;
 import push2video.grpc.Push2VideoClient;
 import push2video.grpc.Push2VideoService;
 import push2video.utils.Constants;
+import push2video.utils.Push2VideoUtils;
 import push2video.websocket.WebSocketServer;
 
 public class Application {
@@ -29,8 +30,8 @@ public class Application {
                     kill();
                 }
             });
-            push2VideoClient.updateSignallingStart("127.0.0.1", Constants.GRPC_CLIENT_PORT);
-            push2VideoClient.createAudioMeeting(Constants.DEFUALT_AUDIO_MEETING);
+            push2VideoClient.updateSignallingStart(Push2VideoUtils.getEnv(Constants.CLIENT_HOST_KEY, Constants.CLIENT_HOST_DEF), Constants.GRPC_CLIENT_PORT);
+            push2VideoClient.createAudioChannel(Constants.DEFUALT_AUDIO_CHANNEL);
             service.waitUntilCompletion();
         } catch (Exception e) {
             logger.error("While starting service, error message {} ", e.getMessage());

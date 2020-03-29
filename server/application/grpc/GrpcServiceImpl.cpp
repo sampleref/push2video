@@ -5,41 +5,52 @@
 #include <gst/gst.h>
 #include <stdio.h>
 #include "thread"
+#include <memory>
 
 /* For GRPC */
-#include <grpcpp/server_builder.h>
 #include <grpcpp/server_context.h>
-#include <grpcpp/security/server_credentials.h>
-#include <grpcpp/support/channel_arguments.h>
+
+using grpc::Channel;
+using grpc::ClientContext;
+using grpc::Status;
 
 #include "GrpcService.hpp"
 #include "../gstreamer/AudioPipelineHandler.hpp"
+#include "../gstreamer/VideoPipelineHandler.hpp"
 #include "../utils/Push2TalkUtils.hpp"
 
 GST_DEBUG_CATEGORY_EXTERN (push2talk_gst);
 #define GST_CAT_DEFAULT push2talk_gst
 
-PushToTalkServiceClient::PushToTalkServiceClient(std::shared_ptr<grpc::Channel> channel) : stub_(
-        PushToTalk::NewStub(channel)) {
+PushToTalkServiceClient::PushToTalkServiceClient(std::shared_ptr<grpc::Channel> channel) {
+    push2talk_stub = PushToTalk::NewStub(channel);
 }
 
 PushToTalkServiceClientPtr createGrpcClient(std::string hostname_port) {
-    grpc::ChannelArguments args;
-    args.SetInt(GRPC_ARG_KEEPALIVE_TIME_MS, 3000);
-    args.SetInt(GRPC_ARG_KEEPALIVE_TIMEOUT_MS, 3000);
-    args.SetInt(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS, 1);
-    args.SetInt(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA, 0);
-    std::make_shared<PushToTalkServiceClient>(
-            (grpc::CreateCustomChannel(hostname_port, grpc::InsecureChannelCredentials(), args)));
+    return std::make_shared<PushToTalkServiceClient>(
+            (grpc::CreateChannel(hostname_port, grpc::InsecureChannelCredentials())));
 }
 
 void PushToTalkServiceClient::sendPeerMessage(PeerMessageRequest peerMessageRequest) {
-    grpc::ClientContext clientContext;
+    ClientContext clientContext;
     PeerMessageResponse response;
     std::string messageInJson;
     google::protobuf::util::MessageToJsonString(peerMessageRequest, &messageInJson);
     GST_INFO("Sending message %s ", messageInJson.c_str());
-    stub_->sendPeerMessage(&clientContext, peerMessageRequest, &response);
+    push2talk_stub->sendPeerMessage(&clientContext, peerMessageRequest, &response);
+}
+
+void PushToTalkServiceClient::sendPing(std::string message) {
+    ClientContext clientContextPing;
+    PingResponse pingResponse;
+    PingRequest pingRequest;
+    pingRequest.set_message(message);
+    std::string messageInJson;
+    google::protobuf::util::MessageToJsonString(pingRequest, &messageInJson);
+    GST_INFO("Sending message %s ", messageInJson.c_str());
+    if (push2talk_stub) {
+        push2talk_stub->checkPing(&clientContextPing, pingRequest, &pingResponse);
+    }
 }
 
 class PushToTalkServiceImpl final : public PushToTalk::Service {
@@ -50,30 +61,83 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
         google::protobuf::util::MessageToJsonString(*request, &messageInJson);
         GST_INFO("Received message %s ", messageInJson.c_str());
         AudioPipelineHandlerPtr audioPipelineHandlerPtr = push2talkUtils::fetch_audio_pipelinehandler_by_key(
-                request->meetingid());
+                request->channelid());
+        VideoPipelineHandlerPtr videoPipelineHandlerPtr = push2talkUtils::fetch_video_pipelinehandler_by_key(
+                request->channelid());
         if (request->has_peerstatusmessage()) {
-            if (request->peerstatusmessage().status() == PeerStatusMessage_Status_DISCONNECTED ||
-                request->peerstatusmessage().status() == PeerStatusMessage_Status_AUDIO_RESET) {
-                audioPipelineHandlerPtr->remove_webrtc_audio_sender_receiver(request->peerid());
-            } else {
-                GST_WARNING("Unhandled status message");
+            switch (request->peerstatusmessage().status()) {
+                case PeerStatusMessage_Status_DISCONNECTED:
+                    audioPipelineHandlerPtr->remove_webrtc_audio_sender_receiver(request->peerid());
+                    if (videoPipelineHandlerPtr) {
+                        videoPipelineHandlerPtr->remove_webrtc_video_peer(request->peerid());
+                    }
+                    break;
+                case PeerStatusMessage_Status_AUDIO_RESET:
+                    audioPipelineHandlerPtr->remove_webrtc_audio_sender_receiver(request->peerid());
+                    break;
+                case PeerStatusMessage_Status_VIDEO_RESET:
+                    if (videoPipelineHandlerPtr) {
+                        videoPipelineHandlerPtr->remove_webrtc_video_peer(request->peerid());
+                    }
+                    break;
+                default:
+                    GST_WARNING("peerstatusmessage Unhandled status message");
             }
         } else if (request->has_sdpmessage()) {
             if (request->sdpmessage().endpoint() == SdpMessage_Endpoint_SERVER) {
-                GST_WARNING("Invalid Endpoint type");
+                GST_WARNING("sdpmessage Invalid Endpoint type");
             } else {
-                if (request->sdpmessage().direction() == SdpMessage_Direction_SENDER) {
-                    //Start sender receiver webrtcbin's
-                    audioPipelineHandlerPtr->add_webrtc_audio_sender_receiver(request->peerid());
-                    audioPipelineHandlerPtr->apply_webrtc_audio_sender_sdp(request->peerid(),
-                                                                           request->sdpmessage().sdp(),
-                                                                           request->sdpmessage().type());
-                } else if (request->sdpmessage().direction() == SdpMessage_Direction_RECEIVER) {
-                    audioPipelineHandlerPtr->apply_webrtc_audio_receiver_sdp(request->peerid(),
-                                                                             request->sdpmessage().sdp(),
-                                                                             request->sdpmessage().type());
-                } else {
-                    GST_WARNING("Invalid Direction type");
+                switch (request->sdpmessage().direction()) {
+                    case SdpMessage_Direction_SENDER:
+                        switch (request->sdpmessage().mediatype()) {
+                            case SdpMessage_MediaType_AUDIO:
+                                //Start sender receiver webrtcbin's
+                                audioPipelineHandlerPtr->add_webrtc_audio_sender_receiver(request->peerid());
+                                audioPipelineHandlerPtr->apply_webrtc_audio_sender_sdp(request->peerid(),
+                                                                                       request->sdpmessage().sdp(),
+                                                                                       request->sdpmessage().type());
+                                break;
+                            case SdpMessage_MediaType_VIDEO: {
+                                if (videoPipelineHandlerPtr == NULL) {
+                                    videoPipelineHandlerPtr = std::make_shared<VideoPipelineHandler>();
+                                }
+                                std::list<std::string> receivers;
+                                for (std::string receiver : request->peersinchannel()) {
+                                    receivers.push_back(receiver);
+                                }
+                                videoPipelineHandlerPtr->create_video_pipeline_sender_peer(request->channelid(),
+                                                                                           request->peerid(),
+                                                                                           receivers,
+                                                                                           request->sdpmessage().sdp(),
+                                                                                           request->sdpmessage().type());
+                                break;
+                            }
+                            default:
+                                GST_WARNING("sdpmessage Unhandled media type");
+                        }
+                        break;
+                    case SdpMessage_Direction_RECEIVER:
+                        switch (request->sdpmessage().mediatype()) {
+                            case SdpMessage_MediaType_AUDIO:
+                                //Start sender receiver webrtcbin's
+                                audioPipelineHandlerPtr->apply_webrtc_audio_receiver_sdp(request->peerid(),
+                                                                                         request->sdpmessage().sdp(),
+                                                                                         request->sdpmessage().type());
+                                break;
+                            case SdpMessage_MediaType_VIDEO: {
+                                if (videoPipelineHandlerPtr) {
+                                    videoPipelineHandlerPtr->apply_webrtc_video_receiver_sdp(request->peerid(),
+                                                                                             request->sdpmessage().sdp(),
+                                                                                             request->sdpmessage().type());
+                                }
+                                break;
+                            }
+                            default:
+                                GST_WARNING("sdpmessage Unhandled media type");
+                        }
+                        break;
+                    default:
+                        GST_WARNING("sdpmessage Unhandled direction type");
                 }
             }
 
@@ -81,45 +145,78 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
             if (request->icemessage().endpoint() == IceMessage_Endpoint_SERVER) {
                 GST_WARNING("Invalid Endpoint type");
             } else {
-                if (request->icemessage().direction() == IceMessage_Direction_SENDER) {
-                    audioPipelineHandlerPtr->apply_webrtc_audio_sender_ice(request->peerid(),
-                                                                           request->icemessage().ice(),
-                                                                           request->icemessage().mlineindex());
-                } else if (request->icemessage().direction() == IceMessage_Direction_RECEIVER) {
-                    audioPipelineHandlerPtr->apply_webrtc_audio_receiver_ice(request->peerid(),
-                                                                             request->icemessage().ice(),
-                                                                             request->icemessage().mlineindex());
-                } else {
-                    GST_WARNING("Invalid Direction type");
+                switch (request->sdpmessage().direction()) {
+                    case SdpMessage_Direction_SENDER:
+                        switch (request->sdpmessage().mediatype()) {
+                            case SdpMessage_MediaType_AUDIO:
+                                audioPipelineHandlerPtr->apply_webrtc_audio_sender_ice(request->peerid(),
+                                                                                       request->icemessage().ice(),
+                                                                                       request->icemessage().mlineindex());
+                                break;
+                            case SdpMessage_MediaType_VIDEO: {
+                                if (videoPipelineHandlerPtr) {
+                                    videoPipelineHandlerPtr->apply_webrtc_video_sender_ice(request->peerid(),
+                                                                                           request->icemessage().ice(),
+                                                                                           request->icemessage().mlineindex());
+                                }
+                                break;
+                            }
+                            default:
+                                GST_WARNING("icemessage Unhandled media type");
+                        }
+                        break;
+                    case SdpMessage_Direction_RECEIVER:
+                        switch (request->sdpmessage().mediatype()) {
+                            case SdpMessage_MediaType_AUDIO:
+                                audioPipelineHandlerPtr->apply_webrtc_audio_receiver_ice(request->peerid(),
+                                                                                         request->icemessage().ice(),
+                                                                                         request->icemessage().mlineindex());
+                                break;
+                            case SdpMessage_MediaType_VIDEO: {
+                                if (videoPipelineHandlerPtr) {
+                                    videoPipelineHandlerPtr->apply_webrtc_video_receiver_ice(request->peerid(),
+                                                                                             request->icemessage().ice(),
+                                                                                             request->icemessage().mlineindex());
+                                }
+                                break;
+                            }
+                            default:
+                                GST_WARNING("icemessage Unhandled media type");
+                        }
+                        break;
+                    default:
+                        GST_WARNING("sdpmessage Unhandled direction type");
                 }
             }
         } else {
             GST_WARNING("Unhandled PeerMessageRequest");
         }
-
         return grpc::Status::OK;
     }
 
-    ::grpc::Status createAudioMeeting(::grpc::ServerContext *context, const ::CreateAudioMeetingRequest *request,
-                                      ::CreateAudioMeetingResponse *response) {
+    ::grpc::Status createAudioMeeting(::grpc::ServerContext *context, const ::CreateAudioChannelRequest *request,
+                                      ::CreateAudioChannelResponse *response) {
         std::string messageInJson;
         google::protobuf::util::MessageToJsonString(*request, &messageInJson);
         GST_INFO("Received message %s ", messageInJson.c_str());
         AudioPipelineHandlerPtr audioPipelineHandlerPtr = std::make_shared<AudioPipelineHandler>();
-        audioPipelineHandlerPtr->meetingId = request->meetingid();
+        push2talkUtils::audioPipelineHandlers[request->channelid()] = audioPipelineHandlerPtr;
+        audioPipelineHandlerPtr->channelId = request->channelid();
         audioPipelineHandlerPtr->start_pipeline();
-        push2talkUtils::audioPipelineHandlers[request->meetingid()] = audioPipelineHandlerPtr;
         return grpc::Status::OK;
     }
 
     ::grpc::Status checkPing(::grpc::ServerContext *context, const ::PingRequest *request, ::PingResponse *response) {
+        GST_INFO("Ping received ");
         response->set_message(request->message());
         return grpc::Status::OK;
     }
 
     ::grpc::Status signallingStarted(::grpc::ServerContext *context, const ::SignallingStart *request,
                                      ::google::protobuf::Empty *response) {
+        GST_INFO("Signalling Started from '%s' ", request->hostnameport().c_str());
         push2talkUtils::pushToTalkServiceClientPtr = createGrpcClient(request->hostnameport());
+        push2talkUtils::pushToTalkServiceClientPtr->sendPing("Hello Signalling, Welcome");
         return grpc::Status::OK;
     }
 };
@@ -152,5 +249,3 @@ bool GrpcServer::stopServer() {
     }
     return true;
 }
-
-

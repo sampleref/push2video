@@ -30,12 +30,13 @@ public:
 class PushToTalkServiceClient {
 public:
     //Attributes
-    std::unique_ptr<PushToTalk::Stub> stub_;
-    grpc::ClientContext clientContext;
+    std::unique_ptr<PushToTalk::Stub> push2talk_stub;
 
     PushToTalkServiceClient(std::shared_ptr<grpc::Channel> channel);
 
     void sendPeerMessage(PeerMessageRequest peerMessageRequest);
+
+    void sendPing(std::string message);
 
 };
 

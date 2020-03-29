@@ -10,12 +10,12 @@
 #include "AudioPipelineHandler.hpp"
 #include "../grpc/GrpcService.hpp"
 #include "../utils/Push2TalkUtils.hpp"
-#include "WebRtcAudioPeer.hpp"
+#include "WebRtcPeer.hpp"
 
 GST_DEBUG_CATEGORY_EXTERN (push2talk_gst);
 #define GST_CAT_DEFAULT push2talk_gst
 
-gboolean pipeline_bus_callback(GstBus *bus, GstMessage *message, gpointer data) {
+gboolean pipeline_bus_callback_audio(GstBus *bus, GstMessage *message, gpointer data) {
     switch (GST_MESSAGE_TYPE (message)) {
         case GST_MESSAGE_ERROR: {
             GError *err;
@@ -23,7 +23,7 @@ gboolean pipeline_bus_callback(GstBus *bus, GstMessage *message, gpointer data) 
             gst_message_parse_error(message, &err, &debug);
             AudioPipelineHandler *pipelineHandler = static_cast<AudioPipelineHandler *>(data);
             GST_ERROR("pipeline_bus_callback:GST_MESSAGE_ERROR Error/code : %s/%d for meeting %s ", err->message,
-                      err->code, pipelineHandler->meetingId.c_str());
+                      err->code, pipelineHandler->channelId.c_str());
             if (err->code > 0) {
                 g_error_free(err);
                 g_free(debug);
@@ -35,7 +35,7 @@ gboolean pipeline_bus_callback(GstBus *bus, GstMessage *message, gpointer data) 
         }
         case GST_MESSAGE_EOS: {
             AudioPipelineHandler *pipelineHandler = static_cast<AudioPipelineHandler *>(data);
-            GST_ERROR("pipeline_bus_callback:GST_MESSAGE_EOS for meeting %s ", pipelineHandler->meetingId.c_str());
+            GST_ERROR("pipeline_bus_callback:GST_MESSAGE_EOS for meeting %s ", pipelineHandler->channelId.c_str());
             return FALSE;
         }
         case GST_MESSAGE_STATE_CHANGED: {
@@ -67,7 +67,7 @@ gboolean pipeline_bus_callback(GstBus *bus, GstMessage *message, gpointer data) 
     return TRUE;
 }
 
-WebRtcAudioPeerPtr AudioPipelineHandler::fetch_audio_sender_by_peerid(std::string peerId) {
+WebRtcPeerPtr AudioPipelineHandler::fetch_audio_sender_by_peerid(std::string peerId) {
     std::lock_guard<std::mutex> lockGuard(push2talkUtils::peers_mutex);
     GST_INFO("Fetching sender peer with peerid %s ", peerId.c_str());
     auto it_peer = peerAudioSenders.find(peerId);
@@ -78,7 +78,7 @@ WebRtcAudioPeerPtr AudioPipelineHandler::fetch_audio_sender_by_peerid(std::strin
     }
 }
 
-WebRtcAudioPeerPtr AudioPipelineHandler::fetch_audio_reciever_by_peerid(std::string peerId) {
+WebRtcPeerPtr AudioPipelineHandler::fetch_audio_reciever_by_peerid(std::string peerId) {
     std::lock_guard<std::mutex> lockGuard(push2talkUtils::peers_mutex);
     GST_INFO("Fetching receiver peer with peerid %s ", peerId.c_str());
     auto it_peer = peerAudioReceivers.find(peerId);
@@ -108,16 +108,16 @@ void AudioPipelineHandler::remove_audio_reciever_by_peerid(std::string peerId) {
 }
 
 
-void launch_pipeline(std::string meetingId);
+void launch_pipeline_audio(std::string meetingId);
 
 gboolean AudioPipelineHandler::start_pipeline() {
-    GST_INFO("starting pipeline for meeting %s ", meetingId.c_str());
-    std::thread th(launch_pipeline, meetingId);
+    GST_INFO("starting pipeline for meeting %s ", channelId.c_str());
+    std::thread th(launch_pipeline_audio, channelId);
     th.detach();
     return TRUE;
 }
 
-void launch_pipeline(std::string meetingId) {
+void launch_pipeline_audio(std::string meetingId) {
     GST_INFO("Creating common audio pipeline meetingId %s ", meetingId.c_str());
 
     AudioPipelineHandlerPtr pipelineHandlerPtr = push2talkUtils::fetch_audio_pipelinehandler_by_key(meetingId);
@@ -129,7 +129,8 @@ void launch_pipeline(std::string meetingId) {
 
     int ret;
     GstBus *bus;
-    GstElement *audiotestsrc, *audiomixer, *audioconvert, *audiotee;
+    GstElement *audiotestsrc, *capsfilter, *audiomixer, *audioconvert, *audiotee;
+    GstCaps *caps;
     GstPad *srcpad, *sinkpad;
 
     /* Create Elements */
@@ -141,21 +142,39 @@ void launch_pipeline(std::string meetingId) {
     audioconvert = gst_element_factory_make("audioconvert", "audioconvert0");
     audiotee = gst_element_factory_make("tee", "audiotee0");
 
-    if (!pipelineHandlerPtr->pipeline || !audiotestsrc || !audiomixer || !audioconvert || !audiotee) {
+    capsfilter = gst_element_factory_make("capsfilter", "audiotestsrc0-capsfilter");
+    caps = gst_caps_from_string(
+            "audio/x-raw, rate=(int)48000, format=(string)S16LE, channels=(int)1, layout=(string)interleaved");
+    g_object_set(capsfilter, "caps", caps, NULL);
+    gst_caps_unref(caps);
+
+    if (!pipelineHandlerPtr->pipeline || !audiotestsrc || !capsfilter || !audiomixer || !audioconvert || !audiotee) {
         GST_ERROR("launch_new_pipeline: Cannot create elements for %s ", "base pipeline");
         return;
     }
 
     /* Add Elements to pipeline and set properties */
-    gst_bin_add_many(GST_BIN(pipelineHandlerPtr->pipeline), audiotestsrc, audiomixer, audioconvert, audiotee,
-                     NULL);
+    //gst_bin_add_many(GST_BIN(pipelineHandlerPtr->pipeline), audiotestsrc, capsfilter, audiomixer, audioconvert, audiotee,
+    //               NULL);
+    gst_bin_add_many(GST_BIN(pipelineHandlerPtr->pipeline), audiomixer, audioconvert, audiotee, NULL);
     g_object_set(audiotestsrc, "num-buffers", -1, NULL);
     g_object_set(audiotestsrc, "freq", 0, NULL);
     g_object_set(audiotestsrc, "is-live", TRUE, NULL);
     g_object_set(audiotee, "allow-not-linked", TRUE, NULL);
 
-    //Link audiotestsrc -> audiomixer
+    //Link audiotestsrc -> capsfilter
+    /*
     srcpad = gst_element_get_static_pad(audiotestsrc, "src");
+    g_assert_nonnull (srcpad);
+    sinkpad = gst_element_get_static_pad(capsfilter, "sink");
+    g_assert_nonnull (sinkpad);
+    ret = gst_pad_link(srcpad, sinkpad);
+    g_assert_cmpint (ret, ==, GST_PAD_LINK_OK);
+    gst_object_unref(srcpad);
+    gst_object_unref(sinkpad);
+
+    //Link capsfilter -> audiomixer
+    srcpad = gst_element_get_static_pad(capsfilter, "src");
     g_assert_nonnull (srcpad);
     sinkpad = gst_element_get_request_pad(audiomixer, "sink_%u");
     g_assert_nonnull (sinkpad);
@@ -164,6 +183,7 @@ void launch_pipeline(std::string meetingId) {
     gst_object_unref(srcpad);
     gst_object_unref(sinkpad);
     GST_DEBUG("Linked audiotestsrc to audiomixer ");
+    */
 
     //Link audiomixer -> audioconvert
     srcpad = gst_element_get_static_pad(audiomixer, "src");
@@ -188,7 +208,7 @@ void launch_pipeline(std::string meetingId) {
     GST_DEBUG("Linked audioconvert to audiotee ");
 
     bus = gst_pipeline_get_bus(GST_PIPELINE(pipelineHandlerPtr->pipeline));
-    gst_bus_add_watch(bus, pipeline_bus_callback, pipelineHandlerPtr.get());
+    gst_bus_add_watch(bus, pipeline_bus_callback_audio, pipelineHandlerPtr.get());
     gst_object_unref(GST_OBJECT(bus));
 
     GST_INFO("launch_new_pipeline: Starting pipeline, not transmitting yet");
@@ -209,14 +229,14 @@ void launch_pipeline(std::string meetingId) {
 }
 
 void send_ice_candidate_message_audio(GstElement *webrtc G_GNUC_UNUSED, guint mlineindex,
-                                      gchar *candidate, WebRtcAudioPeer *user_data G_GNUC_UNUSED) {
+                                      gchar *candidate, WebRtcPeer *user_data G_GNUC_UNUSED) {
     GST_INFO("send_ice_candidate_message of peer/direction/index %s / %d / %d ", candidate,
-             user_data->audioPeerDirection, mlineindex);
+             user_data->peerDirection, mlineindex);
     AudioPipelineHandlerPtr audioPipelineHandlerPtr = push2talkUtils::fetch_audio_pipelinehandler_by_key(
-            user_data->meetingId);
-    if (SENDER == user_data->audioPeerDirection) {
+            user_data->channelId);
+    if (SENDER == user_data->peerDirection) {
         audioPipelineHandlerPtr->send_webrtc_audio_sender_ice(user_data->peerId, candidate, to_string(mlineindex));
-    } else if (RECEIVER == user_data->audioPeerDirection) {
+    } else if (RECEIVER == user_data->peerDirection) {
         audioPipelineHandlerPtr->send_webrtc_audio_receiver_ice(user_data->peerId, candidate, to_string(mlineindex));
     } else {
         GST_ERROR("Unknown sender/receiver type!");
@@ -224,7 +244,7 @@ void send_ice_candidate_message_audio(GstElement *webrtc G_GNUC_UNUSED, guint ml
 }
 
 /* Answer created by our pipeline, to be sent to the peer */
-void on_answer_created_audio(GstPromise *promise, WebRtcAudioPeer *webRtcAudioPeer) {
+void on_answer_created_audio(GstPromise *promise, WebRtcPeer *webRtcAudioPeer) {
     GstWebRTCSessionDescription *answer;
     const GstStructure *reply;
 
@@ -235,20 +255,20 @@ void on_answer_created_audio(GstPromise *promise, WebRtcAudioPeer *webRtcAudioPe
     gst_promise_unref(promise);
 
     promise = gst_promise_new();
-    g_assert_nonnull (webRtcAudioPeer->webrtcAudio);
-    g_signal_emit_by_name(webRtcAudioPeer->webrtcAudio, "set-local-description", answer, promise);
+    g_assert_nonnull (webRtcAudioPeer->webrtcElement);
+    g_signal_emit_by_name(webRtcAudioPeer->webrtcElement, "set-local-description", answer, promise);
     gst_promise_interrupt(promise);
     gst_promise_unref(promise);
 
     /* Send answer to peer */
     gchar *text;
     text = gst_sdp_message_as_text(answer->sdp);
-    push2talkUtils::fetch_audio_pipelinehandler_by_key(webRtcAudioPeer->meetingId)->send_webrtc_audio_sender_sdp(
+    push2talkUtils::fetch_audio_pipelinehandler_by_key(webRtcAudioPeer->channelId)->send_webrtc_audio_sender_sdp(
             webRtcAudioPeer->peerId, text, "answer");
     gst_webrtc_session_description_free(answer);
 }
 
-void on_incoming_stream_audio(GstElement *webrtc, GstPad *pad, WebRtcAudioPeer *webRtcAudioPeer) {
+void on_incoming_stream_audio(GstElement *webrtc, GstPad *pad, WebRtcPeer *webRtcAudioPeer) {
     GST_INFO("Triggered on_incoming_stream ");
     if (GST_PAD_DIRECTION (pad) != GST_PAD_SRC) {
         GST_ERROR("Incorrect pad direction");
@@ -272,7 +292,7 @@ void on_incoming_stream_audio(GstElement *webrtc, GstPad *pad, WebRtcAudioPeer *
     gchar *tmp;
     tmp = g_strdup_printf("rtpopusdepay_send-%s", webRtcAudioPeer->peerId.c_str());
     rtpopusdepay = gst_bin_get_by_name(
-            GST_BIN (push2talkUtils::fetch_audio_pipelinehandler_by_key(webRtcAudioPeer->meetingId)->pipeline), tmp);
+            GST_BIN (push2talkUtils::fetch_audio_pipelinehandler_by_key(webRtcAudioPeer->channelId)->pipeline), tmp);
     g_free(tmp);
     if (gst_element_link_pads(webrtc, dynamic_pad_name, rtpopusdepay, "sink")) {
         GST_INFO("webrtc pad %s linked to rtpopusdepay_send-x", dynamic_pad_name);
@@ -283,13 +303,13 @@ void on_incoming_stream_audio(GstElement *webrtc, GstPad *pad, WebRtcAudioPeer *
     return;
 }
 
-void send_sdp_offer(GstWebRTCSessionDescription *offer, WebRtcAudioPeer *webRtcAudioPeer) {
+void send_sdp_offer_audio(GstWebRTCSessionDescription *offer, WebRtcPeer *webRtcAudioPeer) {
     gchar *text;
 
     text = gst_sdp_message_as_text(offer->sdp);
     GST_INFO("Sending offer for peer: %s \n %s", webRtcAudioPeer->peerId.c_str(), text);
 
-    push2talkUtils::fetch_audio_pipelinehandler_by_key(webRtcAudioPeer->meetingId)->send_webrtc_audio_receiver_sdp(
+    push2talkUtils::fetch_audio_pipelinehandler_by_key(webRtcAudioPeer->channelId)->send_webrtc_audio_receiver_sdp(
             webRtcAudioPeer->peerId, text, "offer");
     g_free(text);
 }
@@ -298,7 +318,7 @@ void send_sdp_offer(GstWebRTCSessionDescription *offer, WebRtcAudioPeer *webRtcA
 void on_offer_created_audio(GstPromise *promise, gpointer user_data) {
     GstWebRTCSessionDescription *offer = NULL;
     const GstStructure *reply;
-    WebRtcAudioPeer *webRtcAudioPeer = static_cast<WebRtcAudioPeer *>(user_data);
+    WebRtcPeer *webRtcAudioPeer = static_cast<WebRtcPeer *>(user_data);
 
     g_assert_cmphex (gst_promise_wait(promise), ==, GST_PROMISE_RESULT_REPLIED);
     reply = gst_promise_get_reply(promise);
@@ -306,38 +326,39 @@ void on_offer_created_audio(GstPromise *promise, gpointer user_data) {
                       GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &offer, NULL);
     gst_promise_unref(promise);
     promise = gst_promise_new();
-    g_signal_emit_by_name(webRtcAudioPeer->webrtcAudio, "set-local-description", offer, promise);
+    g_signal_emit_by_name(webRtcAudioPeer->webrtcElement, "set-local-description", offer, promise);
     gst_promise_interrupt(promise);
     gst_promise_unref(promise);
 
     /* Send offer to peer */
-    send_sdp_offer(offer, webRtcAudioPeer);
+    send_sdp_offer_audio(offer, webRtcAudioPeer);
     gst_webrtc_session_description_free(offer);
 }
 
-void on_negotiation_needed_audio(GstElement *element, WebRtcAudioPeer *user_data) {
+void on_negotiation_needed_audio(GstElement *element, WebRtcPeer *user_data) {
     GstPromise *promise;
     promise = gst_promise_new_with_change_func(on_offer_created_audio, user_data, NULL);
-    g_signal_emit_by_name(user_data->webrtcAudio, "create-offer", NULL, promise);
+    g_signal_emit_by_name(user_data->webrtcElement, "create-offer", NULL, promise);
 }
 
 void AudioPipelineHandler::add_webrtc_audio_sender_receiver(std::string peerId) {
-    GST_INFO("Adding sender and receiver peer %s for meetingId %s ", peerId.c_str(), meetingId.c_str());
+    GST_INFO("Adding sender and receiver peer %s for meetingId %s ", peerId.c_str(), channelId.c_str());
 
     //Creating sender
-    WebRtcAudioPeerPtr webRtcAudioPeerPtrSend = std::make_shared<WebRtcAudioPeer>();
-    webRtcAudioPeerPtrSend->audioPeerDirection = SENDER;
+    WebRtcPeerPtr webRtcAudioPeerPtrSend = std::make_shared<WebRtcPeer>();
+    webRtcAudioPeerPtrSend->peerDirection = SENDER;
     webRtcAudioPeerPtrSend->peerId = peerId;
-    webRtcAudioPeerPtrSend->meetingId = meetingId;
+    webRtcAudioPeerPtrSend->channelId = channelId;
     peerAudioSenders[peerId] = webRtcAudioPeerPtrSend;
 
-    GstStateChangeReturn ret;
+    int retVal;
     GstElement *rtpopusdepay, *opusdec, *audiomixer;
     GstPad *srcpad, *sinkpad;
     /* Create Elements */
     gchar *tmp;
     tmp = g_strdup_printf("webrtcbin_send-%s", peerId.c_str());
-    webRtcAudioPeerPtrSend->webrtcAudio = gst_element_factory_make("webrtcbin", tmp);
+    webRtcAudioPeerPtrSend->webrtcElement = gst_element_factory_make("webrtcbin", tmp);
+    g_object_set(webRtcAudioPeerPtrSend->webrtcElement, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, NULL);
     g_free(tmp);
     tmp = g_strdup_printf("rtpopusdepay_send-%s", peerId.c_str());
     rtpopusdepay = gst_element_factory_make("rtpopusdepay", tmp);
@@ -347,18 +368,18 @@ void AudioPipelineHandler::add_webrtc_audio_sender_receiver(std::string peerId) 
     g_free(tmp);
 
     //Add elements to pipeline
-    gst_bin_add_many(GST_BIN (pipeline), webRtcAudioPeerPtrSend->webrtcAudio, rtpopusdepay, opusdec, NULL);
+    gst_bin_add_many(GST_BIN (pipeline), webRtcAudioPeerPtrSend->webrtcElement, rtpopusdepay, opusdec, NULL);
 
     if (!gst_element_link_many(rtpopusdepay, opusdec, NULL)) {
         GST_ERROR("add_webrtc_audio_sender_receiver: Error linking rtpopusdepay to opusdec for peer %s ",
                   peerId.c_str());
         return;
     }
-    g_assert_nonnull (webRtcAudioPeerPtrSend->webrtcAudio);
-    g_signal_connect (webRtcAudioPeerPtrSend->webrtcAudio, "on-ice-candidate",
-                      G_CALLBACK(send_ice_candidate_message_audio), this);
+    g_assert_nonnull (webRtcAudioPeerPtrSend->webrtcElement);
+    g_signal_connect (webRtcAudioPeerPtrSend->webrtcElement, "on-ice-candidate",
+                      G_CALLBACK(send_ice_candidate_message_audio), webRtcAudioPeerPtrSend.get());
     /* Incoming streams will be exposed via this signal */
-    g_signal_connect (webRtcAudioPeerPtrSend->webrtcAudio, "pad-added", G_CALLBACK(on_incoming_stream_audio),
+    g_signal_connect (webRtcAudioPeerPtrSend->webrtcElement, "pad-added", G_CALLBACK(on_incoming_stream_audio),
                       webRtcAudioPeerPtrSend.get());
 
     //Link sender audio to mixer
@@ -368,35 +389,34 @@ void AudioPipelineHandler::add_webrtc_audio_sender_receiver(std::string peerId) 
     g_assert_nonnull (srcpad);
     sinkpad = gst_element_get_request_pad(audiomixer, "sink_%u");
     g_assert_nonnull (sinkpad);
-    int retVal;
     retVal = gst_pad_link(srcpad, sinkpad);
     g_assert_cmpint (retVal, ==, GST_PAD_LINK_OK);
     gst_object_unref(srcpad);
     gst_object_unref(sinkpad);
 
     //Sync all created elements to pipeline
-    retVal = gst_element_sync_state_with_parent(webRtcAudioPeerPtrSend->webrtcAudio);
-    g_assert_true (ret);
+    retVal = gst_element_sync_state_with_parent(webRtcAudioPeerPtrSend->webrtcElement);
+    g_assert_true (retVal);
     retVal = gst_element_sync_state_with_parent(rtpopusdepay);
-    g_assert_true (ret);
+    g_assert_true (retVal);
     retVal = gst_element_sync_state_with_parent(opusdec);
-    g_assert_true (ret);
+    g_assert_true (retVal);
 
     GST_INFO("Created webrtc bin for sender audio peer %s", peerId.c_str());
 
     //Creating receiver ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-    WebRtcAudioPeerPtr webRtcAudioPeerPtrRecv = std::make_shared<WebRtcAudioPeer>();
-    webRtcAudioPeerPtrRecv->audioPeerDirection = RECEIVER;
+    WebRtcPeerPtr webRtcAudioPeerPtrRecv = std::make_shared<WebRtcPeer>();
+    webRtcAudioPeerPtrRecv->peerDirection = RECEIVER;
     webRtcAudioPeerPtrRecv->peerId = peerId;
-    webRtcAudioPeerPtrRecv->meetingId = meetingId;
+    webRtcAudioPeerPtrRecv->channelId = channelId;
     peerAudioReceivers[peerId] = webRtcAudioPeerPtrRecv;
 
     GstElement *audiotee, *queue, *opusenc, *rtpopuspay;
     /* Create Elements */
     tmp = g_strdup_printf("webrtcbin_recv-%s", peerId.c_str());
-    webRtcAudioPeerPtrRecv->webrtcAudio = gst_element_factory_make("webrtcbin", tmp);
-    g_object_set(webRtcAudioPeerPtrRecv->webrtcAudio, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, NULL);
+    webRtcAudioPeerPtrRecv->webrtcElement = gst_element_factory_make("webrtcbin", tmp);
+    g_object_set(webRtcAudioPeerPtrRecv->webrtcElement, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, NULL);
     g_free(tmp);
     tmp = g_strdup_printf("queue_recv-%s", peerId.c_str());
     queue = gst_element_factory_make("queue", tmp);
@@ -411,7 +431,7 @@ void AudioPipelineHandler::add_webrtc_audio_sender_receiver(std::string peerId) 
 
 
     //Add elements to pipeline
-    gst_bin_add_many(GST_BIN (pipeline), webRtcAudioPeerPtrRecv->webrtcAudio, queue, rtpopuspay, opusenc, NULL);
+    gst_bin_add_many(GST_BIN (pipeline), webRtcAudioPeerPtrRecv->webrtcElement, queue, rtpopuspay, opusenc, NULL);
 
     //Link queue -> opusenc
     srcpad = gst_element_get_static_pad(queue, "src");
@@ -436,7 +456,7 @@ void AudioPipelineHandler::add_webrtc_audio_sender_receiver(std::string peerId) 
     //Link rtpopuspay -> webrtcbin
     srcpad = gst_element_get_static_pad(rtpopuspay, "src");
     g_assert_nonnull (srcpad);
-    sinkpad = gst_element_get_request_pad(webRtcAudioPeerPtrRecv->webrtcAudio, "sink_%u");
+    sinkpad = gst_element_get_request_pad(webRtcAudioPeerPtrRecv->webrtcElement, "sink_%u");
     g_assert_nonnull (sinkpad);
     retVal = gst_pad_link(srcpad, sinkpad);
     g_assert_cmpint (retVal, ==, GST_PAD_LINK_OK);
@@ -459,7 +479,7 @@ void AudioPipelineHandler::add_webrtc_audio_sender_receiver(std::string peerId) 
     GstWebRTCRTPTransceiver *trans;
     GArray *transceivers;
     //Change webrtcbin to send only
-    g_signal_emit_by_name(webRtcAudioPeerPtrRecv->webrtcAudio, "get-transceivers", &transceivers);
+    g_signal_emit_by_name(webRtcAudioPeerPtrRecv->webrtcElement, "get-transceivers", &transceivers);
     if (transceivers) {
         GST_INFO("Changing webrtcbin for receiver audiio peer %s to sendonly. Number of transceivers(%d) ",
                  peerId.c_str(),
@@ -472,29 +492,28 @@ void AudioPipelineHandler::add_webrtc_audio_sender_receiver(std::string peerId) 
         g_array_unref(transceivers);
     }
 
-    g_assert_nonnull (webRtcAudioPeerPtrRecv->webrtcAudio);
+    g_assert_nonnull (webRtcAudioPeerPtrRecv->webrtcElement);
     /* This is the gstwebrtc entry point where we create the offer and so on. It
      * will be called when the pipeline goes to PLAYING. */
-    g_signal_connect (webRtcAudioPeerPtrRecv->webrtcAudio, "on-negotiation-needed",
-                      G_CALLBACK(on_negotiation_needed_audio), this);
+    g_signal_connect (webRtcAudioPeerPtrRecv->webrtcElement, "on-negotiation-needed",
+                      G_CALLBACK(on_negotiation_needed_audio), webRtcAudioPeerPtrRecv.get());
     /* We need to transmit this ICE candidate to the browser via the
      * signalling server. Incoming ice candidates from the browser need to be
      * added by us too*/
-    g_signal_connect (webRtcAudioPeerPtrRecv->webrtcAudio, "on-ice-candidate",
-                      G_CALLBACK(send_ice_candidate_message_audio), this);
+    g_signal_connect (webRtcAudioPeerPtrRecv->webrtcElement, "on-ice-candidate",
+                      G_CALLBACK(send_ice_candidate_message_audio), webRtcAudioPeerPtrRecv.get());
 
     /* Incoming streams will be exposed via this signal */
     //g_signal_connect (webRtcAudioPeerPtrRecv->webrtcAudio, "pad-added", G_CALLBACK(on_incoming_stream), pipeline);
-
     retVal = gst_element_sync_state_with_parent(queue);
     g_assert_true (retVal);
     retVal = gst_element_sync_state_with_parent(opusenc);
     g_assert_true (retVal);
     retVal = gst_element_sync_state_with_parent(rtpopuspay);
     g_assert_true (retVal);
-    retVal = gst_element_sync_state_with_parent(webRtcAudioPeerPtrRecv->webrtcAudio);
+    retVal = gst_element_sync_state_with_parent(webRtcAudioPeerPtrRecv->webrtcElement);
     g_assert_true (retVal);
-    GST_INFO("Created webrtc bin for sender audio peer %s", peerId.c_str());
+    GST_INFO("Created webrtc bin for receiver audio peer %s", peerId.c_str());
 
 }
 
@@ -586,7 +605,7 @@ void AudioPipelineHandler::remove_webrtc_audio_sender_receiver(std::string peerI
     if (rtpopuspay) {
         gst_element_set_state(rtpopuspay, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(pipeline), rtpopuspay);
-        gst_object_unref(opusenc);
+        gst_object_unref(rtpopuspay);
     }
 
     tmp = g_strdup_printf("queue_recv-%s", peerId.c_str());
@@ -621,7 +640,7 @@ void AudioPipelineHandler::remove_webrtc_audio_sender_receiver(std::string peerI
     PeerMessageRequest peerMessageRequest;
     peerMessageRequest.mutable_peerstatusmessage()->set_status(PeerStatusMessage_Status_AUDIO_RESET);
     peerMessageRequest.set_peerid(peerId);
-    peerMessageRequest.set_meetingid(meetingId);
+    peerMessageRequest.set_channelid(channelId);
     push2talkUtils::pushToTalkServiceClientPtr->sendPeerMessage(peerMessageRequest);
 
 }
@@ -648,15 +667,15 @@ void AudioPipelineHandler::apply_webrtc_audio_sender_sdp(std::string peerId, std
     /* Set remote description on our pipeline */
     {
         GstPromise *promise = gst_promise_new();
-        g_signal_emit_by_name(fetch_audio_sender_by_peerid(peerId)->webrtcAudio, "set-remote-description", offer,
+        g_signal_emit_by_name(fetch_audio_sender_by_peerid(peerId)->webrtcElement, "set-remote-description", offer,
                               promise);
         gst_promise_interrupt(promise);
         gst_promise_unref(promise);
 
         /* Create an answer that we will send back to the peer */
         promise = gst_promise_new_with_change_func((GstPromiseChangeFunc) on_answer_created_audio,
-                                                   (gpointer) fetch_audio_sender_by_peerid(peerId)->webrtcAudio, NULL);
-        g_signal_emit_by_name(fetch_audio_sender_by_peerid(peerId)->webrtcAudio, "create-answer", NULL, promise);
+                                                   (gpointer) fetch_audio_sender_by_peerid(peerId).get(), NULL);
+        g_signal_emit_by_name(fetch_audio_sender_by_peerid(peerId)->webrtcElement, "create-answer", NULL, promise);
     }
 }
 
@@ -701,7 +720,7 @@ AudioPipelineHandler::apply_webrtc_audio_receiver_sdp(std::string peerId, std::s
     /* Set remote description on our pipeline */
     {
         GstPromise *promise = gst_promise_new();
-        g_signal_emit_by_name(fetch_audio_reciever_by_peerid(peerId)->webrtcAudio, "set-remote-description", answer,
+        g_signal_emit_by_name(fetch_audio_reciever_by_peerid(peerId)->webrtcElement, "set-remote-description", answer,
                               promise);
         gst_promise_interrupt(promise);
         gst_promise_unref(promise);
@@ -711,7 +730,7 @@ AudioPipelineHandler::apply_webrtc_audio_receiver_sdp(std::string peerId, std::s
 
 void AudioPipelineHandler::apply_webrtc_audio_sender_ice(std::string peerId, std::string ice, std::string mLineIndex) {
     int mlineindex = std::stoi(mLineIndex);
-    g_signal_emit_by_name(fetch_audio_sender_by_peerid(peerId)->webrtcAudio, "add-ice-candidate", mlineindex,
+    g_signal_emit_by_name(fetch_audio_sender_by_peerid(peerId)->webrtcElement, "add-ice-candidate", mlineindex,
                           ice.c_str());
 }
 
@@ -726,29 +745,31 @@ AudioPipelineHandler::apply_webrtc_audio_receiver_ice(std::string peerId, std::s
              sdpmlineindex, candidateMsg);
 
     /* Add ice candidateMsg sent by remote peer */
-    g_signal_emit_by_name(fetch_audio_reciever_by_peerid(peerId)->webrtcAudio, "add-ice-candidate", sdpmlineindex,
+    g_signal_emit_by_name(fetch_audio_reciever_by_peerid(peerId)->webrtcElement, "add-ice-candidate", sdpmlineindex,
                           candidateMsg);
 }
 
 void AudioPipelineHandler::send_webrtc_audio_sender_sdp(std::string peerId, std::string sdp, std::string type) {
     PeerMessageRequest peerMessageRequest;
     peerMessageRequest.mutable_sdpmessage()->set_sdp(sdp);
+    peerMessageRequest.mutable_sdpmessage()->set_type(type);
     peerMessageRequest.mutable_sdpmessage()->set_direction(SdpMessage_Direction_SENDER);
     peerMessageRequest.mutable_sdpmessage()->set_mediatype(SdpMessage_MediaType_AUDIO);
     peerMessageRequest.mutable_sdpmessage()->set_endpoint(SdpMessage_Endpoint_SERVER);
     peerMessageRequest.set_peerid(peerId);
-    peerMessageRequest.set_meetingid(meetingId);
+    peerMessageRequest.set_channelid(channelId);
     push2talkUtils::pushToTalkServiceClientPtr->sendPeerMessage(peerMessageRequest);
 }
 
 void AudioPipelineHandler::send_webrtc_audio_receiver_sdp(std::string peerId, std::string sdp, std::string type) {
     PeerMessageRequest peerMessageRequest;
     peerMessageRequest.mutable_sdpmessage()->set_sdp(sdp);
+    peerMessageRequest.mutable_sdpmessage()->set_type(type);
     peerMessageRequest.mutable_sdpmessage()->set_direction(SdpMessage_Direction_RECEIVER);
     peerMessageRequest.mutable_sdpmessage()->set_mediatype(SdpMessage_MediaType_AUDIO);
     peerMessageRequest.mutable_sdpmessage()->set_endpoint(SdpMessage_Endpoint_SERVER);
     peerMessageRequest.set_peerid(peerId);
-    peerMessageRequest.set_meetingid(meetingId);
+    peerMessageRequest.set_channelid(channelId);
     push2talkUtils::pushToTalkServiceClientPtr->sendPeerMessage(peerMessageRequest);
 }
 
@@ -760,7 +781,7 @@ void AudioPipelineHandler::send_webrtc_audio_sender_ice(std::string peerId, std:
     peerMessageRequest.mutable_icemessage()->set_mediatype(IceMessage_MediaType_AUDIO);
     peerMessageRequest.mutable_icemessage()->set_endpoint(IceMessage_Endpoint_SERVER);
     peerMessageRequest.set_peerid(peerId);
-    peerMessageRequest.set_meetingid(meetingId);
+    peerMessageRequest.set_channelid(channelId);
     push2talkUtils::pushToTalkServiceClientPtr->sendPeerMessage(peerMessageRequest);
 }
 
@@ -772,6 +793,6 @@ void AudioPipelineHandler::send_webrtc_audio_receiver_ice(std::string peerId, st
     peerMessageRequest.mutable_icemessage()->set_mediatype(IceMessage_MediaType_AUDIO);
     peerMessageRequest.mutable_icemessage()->set_endpoint(IceMessage_Endpoint_SERVER);
     peerMessageRequest.set_peerid(peerId);
-    peerMessageRequest.set_meetingid(meetingId);
+    peerMessageRequest.set_channelid(channelId);
     push2talkUtils::pushToTalkServiceClientPtr->sendPeerMessage(peerMessageRequest);
 }

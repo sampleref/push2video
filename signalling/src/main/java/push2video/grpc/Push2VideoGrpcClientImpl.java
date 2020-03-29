@@ -42,7 +42,7 @@ public class Push2VideoGrpcClientImpl {
     }
 
     public void signallingStarted(String hostname, int port) {
-        SignallingStart signallingStart = SignallingStart.newBuilder().setHostnamePort(hostname + ":" + Integer.toString(port)).build();
+        SignallingStart signallingStart = SignallingStart.newBuilder().setHostnamePort(hostname + ":" + port).build();
         pushToTalkBlockingStub.signallingStarted(signallingStart);
     }
 
@@ -50,9 +50,9 @@ public class Push2VideoGrpcClientImpl {
         return pushToTalkBlockingStub.sendPeerMessage(request);
     }
 
-    public boolean createAudioMeeting(String meetingId) {
-        CreateAudioMeetingResponse createAudioMeetingResponse = pushToTalkBlockingStub.createAudioMeeting(CreateAudioMeetingRequest.newBuilder().setMeetingId(meetingId).build());
-        if (createAudioMeetingResponse.getStatus().equals(CreateAudioMeetingResponse.Status.OK)) {
+    public boolean createAudioChannel(String channelId) {
+        CreateAudioChannelResponse createAudioChannelResponse = pushToTalkBlockingStub.createAudioChannel(CreateAudioChannelRequest.newBuilder().setChannelId(channelId).build());
+        if (createAudioChannelResponse.getStatus().equals(CreateAudioChannelResponse.Status.OK)) {
             return true;
         }
         return false;

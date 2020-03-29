@@ -12,6 +12,12 @@ public class Constants {
     public static final String JKSFILE = "server.jks";
     public static final String HOST_ADDR = "0.0.0.0";
 
-    //Default Audio Meeting Id
-    public static final String DEFUALT_AUDIO_MEETING = "AUDI0_001_TEKSI";
+    // Hosts
+    public static final String SERVER_HOST_KEY = "GST_SERVER_HOST";
+    public static final String SERVER_HOST_DEF = "127.0.0.1";
+    public static final String CLIENT_HOST_KEY = "SIGNALLING_CLIENT_HOST";
+    public static final String CLIENT_HOST_DEF = "127.0.0.1";
+
+    //Default Audio Channel Id
+    public static final String DEFUALT_AUDIO_CHANNEL = "AUDI0_001_CHANNEL";
 }

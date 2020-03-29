@@ -18,7 +18,7 @@ public class MessageEncoder implements Encoder.Text<PeerMessageRequest> {
 
 	private static final Logger logger = LogManager.getLogger(MessageEncoder.class);
 
-	private static JsonFormat.Printer printer = JsonFormat.printer();
+	private static JsonFormat.Printer printer = JsonFormat.printer().includingDefaultValueFields();
 
 	@Override
 	public void destroy() {

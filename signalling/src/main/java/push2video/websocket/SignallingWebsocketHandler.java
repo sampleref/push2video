@@ -12,9 +12,6 @@ import push2video.utils.Push2VideoUtils;
 import javax.websocket.*;
 import javax.websocket.server.ServerEndpoint;
 import java.io.IOException;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * @author chakra
@@ -32,6 +29,7 @@ public class SignallingWebsocketHandler {
         if (StringUtils.isNotBlank(peerId)) {
             GrpcWebsocketBridge.peerSessionMap.put(peerId, session);
             GrpcWebsocketBridge.sessionPeerMap.put(session.getId(), peerId);
+            GrpcWebsocketBridge.peerChannelMap.get(Constants.DEFUALT_AUDIO_CHANNEL).add(peerId);
         } else {
             logger.error("Peer Id cannot be allocated!");
         }
@@ -40,12 +38,18 @@ public class SignallingWebsocketHandler {
     @OnMessage
     public void onMessage(PeerMessageRequest message, Session session) throws IOException, EncodeException {
         logger.debug("Message received from " + session.getId());
-        GrpcWebsocketBridge.sendToServer(GrpcWebsocketBridge.sessionPeerMap.get(session.getId()), message);
+        if(GrpcWebsocketBridge.updateLockAndVerify(message)){
+            GrpcWebsocketBridge.sendToServer(GrpcWebsocketBridge.sessionPeerMap.get(session.getId()), message);
+        }
     }
 
     @OnClose
     public void onClose(Session session) throws IOException, EncodeException {
         logger.info("Websocket with session Id " + session.getId() + " is closed");
+        PeerMessageRequest request = PeerMessageRequest.newBuilder().setPeerId(GrpcWebsocketBridge.sessionPeerMap.get(session.getId()))
+                .setPeerStatusMessage(PeerStatusMessage.newBuilder().setStatus(PeerStatusMessage.Status.DISCONNECTED).build()).build();
+        GrpcWebsocketBridge.updateLockAndVerify(request);
+        GrpcWebsocketBridge.peerChannelMap.get(Constants.DEFUALT_AUDIO_CHANNEL).remove(GrpcWebsocketBridge.sessionPeerMap.get(session.getId()));
         GrpcWebsocketBridge.sendStatusToServer(GrpcWebsocketBridge.sessionPeerMap.get(session.getId()), PeerStatusMessage.Status.DISCONNECTED);
     }
 

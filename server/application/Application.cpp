@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "grpc/GrpcService.hpp"
+#include "utils/Push2TalkUtils.hpp"
 
 using namespace std;
 
@@ -46,6 +47,8 @@ main(int argc, char *argv[]) {
     signal(SIGSEGV, SIGSEGV_handler);
     signal(SIGABRT, Stop_Signal_handler);
     signal(SIGTERM, Stop_Signal_handler);
+
+    push2talkUtils::initialise_rand();
 
     gst_init(&argc, &argv);
     GST_DEBUG_CATEGORY_INIT (push2talk_gst, "push2talk_gst", 2, "Custom GStreamer Push2Talk Logging Category");

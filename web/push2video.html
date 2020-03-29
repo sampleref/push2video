@@ -1,0 +1,31 @@
+<html>
+
+<head>
+    <script src="push2video.js"></script>
+</head>
+
+<body>
+    <video id="videoId" autoplay muted style="width:800px;height:800px"></video>
+
+    <br />
+	
+	<audio id="audioRecv" autoplay controls ></audio>
+
+    <br />
+	
+	Peer Id Assigned: <label id="peerId"></label>
+	
+	<br />
+
+    <input type="button" id="startVideo" onclick="startVideo()" value="Start Video"></input>
+    <input type="button" id="stopVideo" onclick="stopVideo()" value="Stop Video"></input>
+	<br />
+
+    <input type="button" id="joinAudio" onclick="joinAudio()" value="Join Audio"></input>
+
+    <script type="text/javascript">
+        pageReady();
+    </script>
+</body>
+
+</html>

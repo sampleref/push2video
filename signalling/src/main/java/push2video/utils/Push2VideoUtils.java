@@ -9,4 +9,12 @@ public class Push2VideoUtils {
     private static int getRandomNumber(int min, int max) {
         return (int) ((Math.random() * (max - min)) + min);
     }
+
+    public static String getEnv(String key, String defValue) {
+        String value = System.getenv(key);
+        if (value == null) {
+            return defValue;
+        }
+        return value;
+    }
 }
