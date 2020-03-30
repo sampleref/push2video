@@ -90,12 +90,13 @@ function startVideo() {
     }
     // Create peerConnection and attach onicecandidate, ontrack callbacks
     peerConnectionVideoSend = new RTCPeerConnection(peerConnectionConfig);
-    streamVar.getTracks().forEach(track => {
-        if(track.kind == 'video'){
-            peerConnectionVideoSend.addTrack(track, streamVar);
-            videosrc.srcObject = track;
-        }
-    });
+	videosrc.srcObject = streamVar;
+	streamVar.getTracks().forEach(track => {
+		if(track.kind == 'video'){
+			peerConnectionVideoSend.addTrack(track, streamVar);
+		}
+	});
+    
     peerConnectionVideoSend.onicecandidate = gotIceCandidateVideoSend;
     peerConnectionVideoSend.createOffer(gotDescriptionVideoSend, createOfferError, offerConstraints);
 }
@@ -117,6 +118,7 @@ function stopVideo() {
     };
     serverConnection.send(JSON.stringify(msg));
     console.debug("Sent video reset");
+	videosrc.srcObject = null;
 }
 
 function joinAudio(){

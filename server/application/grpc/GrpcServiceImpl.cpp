@@ -36,7 +36,7 @@ void PushToTalkServiceClient::sendPeerMessage(PeerMessageRequest peerMessageRequ
     PeerMessageResponse response;
     std::string messageInJson;
     google::protobuf::util::MessageToJsonString(peerMessageRequest, &messageInJson);
-    GST_INFO("Sending message %s ", messageInJson.c_str());
+    GST_DEBUG("Sending message %s ", messageInJson.c_str());
     push2talk_stub->sendPeerMessage(&clientContext, peerMessageRequest, &response);
 }
 
@@ -58,7 +58,10 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
     ::grpc::Status sendPeerMessage(::grpc::ServerContext *context, const ::PeerMessageRequest *request,
                                    ::PeerMessageResponse *response) {
         std::string messageInJson;
-        google::protobuf::util::MessageToJsonString(*request, &messageInJson);
+        google::protobuf::util::JsonOptions jsonOptions;
+        jsonOptions.always_print_primitive_fields = true;
+        jsonOptions.preserve_proto_field_names = true;
+        google::protobuf::util::MessageToJsonString(*request, &messageInJson, jsonOptions);
         GST_INFO("Received message %s ", messageInJson.c_str());
         AudioPipelineHandlerPtr audioPipelineHandlerPtr = push2talkUtils::fetch_audio_pipelinehandler_by_key(
                 request->channelid());
@@ -103,7 +106,10 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
                                 }
                                 std::list<std::string> receivers;
                                 for (std::string receiver : request->peersinchannel()) {
-                                    receivers.push_back(receiver);
+                                    //Skipping sender from receivers
+                                    if (request->peerid().compare(receiver) != 0) {
+                                        receivers.push_back(receiver);
+                                    }
                                 }
                                 videoPipelineHandlerPtr->create_video_pipeline_sender_peer(request->channelid(),
                                                                                            request->peerid(),
@@ -145,15 +151,15 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
             if (request->icemessage().endpoint() == IceMessage_Endpoint_SERVER) {
                 GST_WARNING("Invalid Endpoint type");
             } else {
-                switch (request->sdpmessage().direction()) {
-                    case SdpMessage_Direction_SENDER:
-                        switch (request->sdpmessage().mediatype()) {
-                            case SdpMessage_MediaType_AUDIO:
+                switch (request->icemessage().direction()) {
+                    case IceMessage_Direction_SENDER:
+                        switch (request->icemessage().mediatype()) {
+                            case IceMessage_MediaType_AUDIO:
                                 audioPipelineHandlerPtr->apply_webrtc_audio_sender_ice(request->peerid(),
                                                                                        request->icemessage().ice(),
                                                                                        request->icemessage().mlineindex());
                                 break;
-                            case SdpMessage_MediaType_VIDEO: {
+                            case IceMessage_MediaType_VIDEO: {
                                 if (videoPipelineHandlerPtr) {
                                     videoPipelineHandlerPtr->apply_webrtc_video_sender_ice(request->peerid(),
                                                                                            request->icemessage().ice(),
@@ -165,14 +171,14 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
                                 GST_WARNING("icemessage Unhandled media type");
                         }
                         break;
-                    case SdpMessage_Direction_RECEIVER:
-                        switch (request->sdpmessage().mediatype()) {
-                            case SdpMessage_MediaType_AUDIO:
+                    case IceMessage_Direction_RECEIVER:
+                        switch (request->icemessage().mediatype()) {
+                            case IceMessage_MediaType_AUDIO:
                                 audioPipelineHandlerPtr->apply_webrtc_audio_receiver_ice(request->peerid(),
                                                                                          request->icemessage().ice(),
                                                                                          request->icemessage().mlineindex());
                                 break;
-                            case SdpMessage_MediaType_VIDEO: {
+                            case IceMessage_MediaType_VIDEO: {
                                 if (videoPipelineHandlerPtr) {
                                     videoPipelineHandlerPtr->apply_webrtc_video_receiver_ice(request->peerid(),
                                                                                              request->icemessage().ice(),

@@ -53,10 +53,10 @@ public:
 
     void remove_sender_peer_close_pipeline();
 
+    void create_receivers_for_video();
+
 
 private:
-    void create_receivers_for_video(std::list<std::string> receivers);
-
     WebRtcPeerPtr fetch_video_reciever_by_peerid(std::string peerId);
 
     void remove_video_reciever_by_peerid(std::string peerId);

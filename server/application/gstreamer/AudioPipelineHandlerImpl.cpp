@@ -143,10 +143,9 @@ void launch_pipeline_audio(std::string meetingId) {
     audiotee = gst_element_factory_make("tee", "audiotee0");
 
     capsfilter = gst_element_factory_make("capsfilter", "audiotestsrc0-capsfilter");
-    caps = gst_caps_from_string(
-            "audio/x-raw, rate=(int)48000, format=(string)S16LE, channels=(int)1, layout=(string)interleaved");
-    g_object_set(capsfilter, "caps", caps, NULL);
-    gst_caps_unref(caps);
+    caps = gst_caps_from_string("audio/x-raw, rate=(int)48000, format=(string)S16LE, channels=(int)1, layout=(string)interleaved");
+    g_object_set (capsfilter, "caps", caps, NULL);
+    gst_caps_unref (caps);
 
     if (!pipelineHandlerPtr->pipeline || !audiotestsrc || !capsfilter || !audiomixer || !audioconvert || !audiotee) {
         GST_ERROR("launch_new_pipeline: Cannot create elements for %s ", "base pipeline");
@@ -230,7 +229,7 @@ void launch_pipeline_audio(std::string meetingId) {
 
 void send_ice_candidate_message_audio(GstElement *webrtc G_GNUC_UNUSED, guint mlineindex,
                                       gchar *candidate, WebRtcPeer *user_data G_GNUC_UNUSED) {
-    GST_INFO("send_ice_candidate_message of peer/direction/index %s / %d / %d ", candidate,
+    GST_DEBUG("send_ice_candidate_message of peer/direction/index %s / %d / %d ", candidate,
              user_data->peerDirection, mlineindex);
     AudioPipelineHandlerPtr audioPipelineHandlerPtr = push2talkUtils::fetch_audio_pipelinehandler_by_key(
             user_data->channelId);
@@ -295,7 +294,7 @@ void on_incoming_stream_audio(GstElement *webrtc, GstPad *pad, WebRtcPeer *webRt
             GST_BIN (push2talkUtils::fetch_audio_pipelinehandler_by_key(webRtcAudioPeer->channelId)->pipeline), tmp);
     g_free(tmp);
     if (gst_element_link_pads(webrtc, dynamic_pad_name, rtpopusdepay, "sink")) {
-        GST_INFO("webrtc pad %s linked to rtpopusdepay_send-x", dynamic_pad_name);
+        GST_INFO("webrtc pad %s linked to rtpopusdepay_send", dynamic_pad_name);
         gst_object_unref(rtpopusdepay);
         g_free(dynamic_pad_name);
         return;

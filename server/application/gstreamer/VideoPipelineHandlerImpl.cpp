@@ -32,8 +32,8 @@ void send_video_reset(VideoPipelineHandler *videoPipelineHandler) {
 }
 
 void release_video_pipeline(VideoPipelineHandler *videoPipelineHandler) {
-    videoPipelineHandler->remove_sender_peer_close_pipeline();
     send_video_reset(videoPipelineHandler);
+    videoPipelineHandler->remove_sender_peer_close_pipeline();
 }
 
 gboolean pipeline_bus_callback_video(GstBus *bus, GstMessage *message, gpointer data) {
@@ -104,13 +104,24 @@ void VideoPipelineHandler::create_video_pipeline_sender_peer(std::string channel
     webRtcPeerPtr->sdp = sdp;
     webRtcPeerPtr->sdp_type = type;
     videoPipelineHandlerPtr->senderPeer = webRtcPeerPtr;
+    videoPipelineHandlerPtr->senderPeerId = senderPeerId;
+    for (std::string receiver : receivers) {
+        GST_INFO("Creating sender (%s) ===>>> receiver (%s) ", senderPeerId.c_str(), receiver.c_str());
+        WebRtcPeerPtr webRtcPeerPtrVideoRecv = std::make_shared<WebRtcPeer>();
+        webRtcPeerPtrVideoRecv->webRtcMediaType = VIDEO;
+        webRtcPeerPtrVideoRecv->peerDirection = RECEIVER;
+        webRtcPeerPtrVideoRecv->channelId = channelId;
+        webRtcPeerPtrVideoRecv->peerId = receiver;
+        peerVideoReceivers[webRtcPeerPtrVideoRecv->peerId] = webRtcPeerPtrVideoRecv;
+    }
+    GST_INFO("Number of receivers %lu for sender peer %s ", peerVideoReceivers.size(), senderPeerId.c_str());
     videoPipelineHandlerPtr->start_pipeline();
 }
 
 void send_ice_candidate_message_video(GstElement *webrtc G_GNUC_UNUSED, guint mlineindex,
                                       gchar *candidate, WebRtcPeer *user_data G_GNUC_UNUSED) {
-    GST_INFO("send_ice_candidate_message of peer/direction/index %s / %d / %d ", candidate,
-             user_data->peerDirection, mlineindex);
+    GST_DEBUG("send_ice_candidate_message of peer/direction/index %s / %d / %d ", candidate,
+              user_data->peerDirection, mlineindex);
     VideoPipelineHandlerPtr videoPipelineHandlerPtr = push2talkUtils::fetch_video_pipelinehandler_by_key(
             user_data->channelId);
     if (SENDER == user_data->peerDirection) {
@@ -145,13 +156,15 @@ void on_incoming_stream_video(GstElement *webrtc, GstPad *pad, WebRtcPeer *webRt
     GST_INFO("on_incoming_stream caps name %s ", name);
     gchar *tmp;
     tmp = g_strdup_printf("rtpvp8depay_send-%s", webRtcVideoPeer->peerId.c_str());
-    rtpvp8depay = gst_bin_get_by_name(
-            GST_BIN (push2talkUtils::fetch_video_pipelinehandler_by_key(webRtcVideoPeer->channelId)->pipeline), tmp);
+    VideoPipelineHandlerPtr videoPipelineHandlerPtr = push2talkUtils::fetch_video_pipelinehandler_by_key(
+            webRtcVideoPeer->channelId);
+    rtpvp8depay = gst_bin_get_by_name(GST_BIN (videoPipelineHandlerPtr->pipeline), tmp);
     g_free(tmp);
     if (gst_element_link_pads(webrtc, dynamic_pad_name, rtpvp8depay, "sink")) {
-        GST_INFO("webrtc pad %s linked to rtpvp8depay_send-x", dynamic_pad_name);
+        GST_INFO("webrtc pad %s linked to rtpvp8depay_send", dynamic_pad_name);
         gst_object_unref(rtpvp8depay);
         g_free(dynamic_pad_name);
+        videoPipelineHandlerPtr->create_receivers_for_video();
         return;
     }
     return;
@@ -177,10 +190,8 @@ void launch_pipeline_video(std::string channelId) {
         return;
     }
 
-    int ret;
     GstBus *bus;
     GstElement *rtpvp8depay, *watchdog, *videotee;
-    GstPad *srcpad, *sinkpad;
 
     /* Create Elements */
     gchar *tmp = g_strdup_printf("video-pipeline");
@@ -206,11 +217,11 @@ void launch_pipeline_video(std::string channelId) {
 
     /* Add Elements to pipeline and set properties */
     gst_bin_add_many(GST_BIN(pipelineHandlerPtr->pipeline), pipelineHandlerPtr->senderPeer->webrtcElement, rtpvp8depay,
-                     watchdog, videotee, NULL);
-    g_object_set(watchdog, "timeout", 3000, NULL);
+                     videotee, NULL);
+    g_object_set(watchdog, "timeout", 15000, NULL);
     g_object_set(videotee, "allow-not-linked", TRUE, NULL);
 
-    if (!gst_element_link_many(rtpvp8depay, watchdog, videotee, NULL)) {
+    if (!gst_element_link_many(rtpvp8depay, videotee, NULL)) {
         GST_ERROR("add_webrtc_video_receiver: Error linking rtpvp8depay to videotee for peer %s ",
                   pipelineHandlerPtr->senderPeerId.c_str());
         return;
@@ -223,15 +234,13 @@ void launch_pipeline_video(std::string channelId) {
     g_signal_connect (pipelineHandlerPtr->senderPeer->webrtcElement, "pad-added", G_CALLBACK(on_incoming_stream_video),
                       pipelineHandlerPtr->senderPeer.get());
 
-    if (!gst_element_link_many(rtpvp8depay, watchdog, videotee, NULL)) {
-        GST_ERROR("launch_new_pipeline: Error linking rtpvp8depay to videotee for sender %s ",
-                  pipelineHandlerPtr->senderPeerId.c_str());
-        goto err;
-    }
-
     bus = gst_pipeline_get_bus(GST_PIPELINE(pipelineHandlerPtr->pipeline));
     gst_bus_add_watch(bus, pipeline_bus_callback_video, pipelineHandlerPtr.get());
     gst_object_unref(GST_OBJECT(bus));
+
+    //Add receivers
+    //GST_INFO("Creating receivers for sender peer %s ", pipelineHandlerPtr->senderPeerId.c_str());
+    //pipelineHandlerPtr->create_receivers_for_video();
 
     GST_INFO("Starting video pipeline channel %s sender peer %s ", pipelineHandlerPtr->channelId.c_str(),
              pipelineHandlerPtr->senderPeerId.c_str());
@@ -293,7 +302,7 @@ void VideoPipelineHandler::apply_webrtc_video_sender_sdp(std::string peerId, std
         const gchar *text;
         GstWebRTCSessionDescription *offer;
         text = sdp.c_str();
-        GST_INFO("Received offer:\n%s", text);
+        GST_DEBUG("Received offer:\n%s", text);
 
         ret = gst_sdp_message_new(&sdpMsg);
         g_assert_cmphex (ret, ==, GST_SDP_OK);
@@ -318,7 +327,7 @@ void VideoPipelineHandler::apply_webrtc_video_sender_sdp(std::string peerId, std
             g_signal_emit_by_name(senderPeer->webrtcElement, "create-answer", NULL, promise);
         }
     } else {
-        GST_ERROR("Other receiver peers cannot apply offer!");
+        GST_ERROR("Other receiver peers cannot apply offer as sender! %s ", senderPeerId.c_str());
     }
 }
 
@@ -376,8 +385,12 @@ void VideoPipelineHandler::apply_webrtc_video_receiver_sdp(std::string peerId, s
 }
 
 void VideoPipelineHandler::apply_webrtc_video_sender_ice(std::string peerId, std::string ice, std::string mLineIndex) {
-    int mlineindex = std::stoi(mLineIndex);
     if (peerId.compare(senderPeerId) == 0) {
+        int mlineindex = std::stoi(mLineIndex);
+        while ((senderPeer->webrtcElement == NULL) || !(G_TYPE_CHECK_INSTANCE(senderPeer->webrtcElement))) {
+            GST_INFO("Waiting for ICE to be applied for sender peer %s ", senderPeerId.c_str());
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
         g_signal_emit_by_name(senderPeer->webrtcElement, "add-ice-candidate", mlineindex,
                               ice.c_str());
     } else {
@@ -521,6 +534,7 @@ void VideoPipelineHandler::remove_sender_peer_close_pipeline() {
                 WebRtcPeer webRtcPeerPtr = *(elem.second);
                 remove_receiver_peer_from_pipeline(webRtcPeerPtr.peerId, false);
             }
+            GST_ERROR("Clearing all receiver peers list");
             peerVideoReceivers.clear();
         } catch (std::exception exception1) {
             GST_ERROR("stop_and_clear_allpeers_from_map ::  Exception Thrown %s ", exception1.what());
@@ -596,17 +610,11 @@ void on_negotiation_needed_video(GstElement *element, WebRtcPeer *user_data) {
     g_signal_emit_by_name(user_data->webrtcElement, "create-offer", NULL, promise);
 }
 
-void VideoPipelineHandler::create_receivers_for_video(std::list<std::string> receivers) {
-
-    for (std::string receiver : receivers) {
-
-        GST_INFO("Creating webrtc recv peer for peer id %s ", receiver.c_str());
-        WebRtcPeerPtr webRtcPeerPtr = std::make_shared<WebRtcPeer>();
-        webRtcPeerPtr->webRtcMediaType = VIDEO;
-        webRtcPeerPtr->peerDirection = RECEIVER;
-        webRtcPeerPtr->peerId = receiver;
-        webRtcPeerPtr->channelId = channelId;
-        peerVideoReceivers[receiver] = webRtcPeerPtr;
+void VideoPipelineHandler::create_receivers_for_video() {
+    GST_INFO("Creating video receivers %lu for sender peer %s ", peerVideoReceivers.size(), senderPeerId.c_str());
+    for (std::pair<std::string, WebRtcPeerPtr> receiver : peerVideoReceivers) {
+        WebRtcPeerPtr webRtcPeerPtr = receiver.second;
+        GST_INFO("Creating webrtc recv peer for peer id %s ", webRtcPeerPtr->peerId.c_str());
 
         GstWebRTCRTPTransceiver *trans;
         GArray *transceivers;
@@ -616,13 +624,13 @@ void VideoPipelineHandler::create_receivers_for_video(std::list<std::string> rec
         GstCaps *caps;
         GstPad *srcpad, *sinkpad;
         //Create queue
-        tmp = g_strdup_printf("queue_recv-%s", receiver.c_str());
+        tmp = g_strdup_printf("queue_recv-%s", webRtcPeerPtr->peerId.c_str());
         queue = gst_element_factory_make("queue", tmp);
         g_object_set(queue, "leaky", 2, NULL);
         g_free(tmp);
 
         //Create rtph264pay with caps
-        tmp = g_strdup_printf("rtphvp8pay_recv-%s", receiver.c_str());
+        tmp = g_strdup_printf("rtphvp8pay_recv-%s", webRtcPeerPtr->peerId.c_str());
         rtpvp8pay = gst_element_factory_make("rtpvp8pay", tmp);
         g_object_set(rtpvp8pay, "config-interval", -1, NULL);
         g_object_set(rtpvp8pay, "pt", 96, NULL);
@@ -635,7 +643,7 @@ void VideoPipelineHandler::create_receivers_for_video(std::list<std::string> rec
         gst_object_unref(srcpad);
 
         //Create webrtcbin
-        tmp = g_strdup_printf("webrtcbin_recv-%s", receiver.c_str());
+        tmp = g_strdup_printf("webrtcbin_recv-%s", webRtcPeerPtr->peerId.c_str());
         webRtcPeerPtr->webrtcElement = gst_element_factory_make("webrtcbin", tmp);
         g_object_set(webRtcPeerPtr->webrtcElement, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, NULL);
         g_free(tmp);
@@ -681,7 +689,8 @@ void VideoPipelineHandler::create_receivers_for_video(std::list<std::string> rec
         //Change webrtcbin to send only
         g_signal_emit_by_name(webRtcPeerPtr->webrtcElement, "get-transceivers", &transceivers);
         if (transceivers) {
-            GST_INFO("Changing webrtcbin for peer %s to sendonly. Number of transceivers(%d) ", receiver.c_str(),
+            GST_INFO("Changing webrtcbin for peer %s to sendonly. Number of transceivers(%d) ",
+                     webRtcPeerPtr->peerId.c_str(),
                      transceivers->len);
             g_assert_true(transceivers->len > 0);
             trans = g_array_index (transceivers, GstWebRTCRTPTransceiver *, 0);
@@ -710,7 +719,7 @@ void VideoPipelineHandler::create_receivers_for_video(std::list<std::string> rec
         ret = gst_element_sync_state_with_parent(webRtcPeerPtr->webrtcElement);
         g_assert_true (ret);
 
-        GST_INFO("Created webrtc bin for receiver peer %s", receiver.c_str());
+        GST_INFO("Created webrtc bin for receiver peer %s", webRtcPeerPtr->peerId.c_str());
     }
 }
 
