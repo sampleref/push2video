@@ -194,7 +194,7 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
         return grpc::Status::OK;
     }
 
-    ::grpc::Status createAudioMeeting(::grpc::ServerContext *context, const ::CreateAudioChannelRequest *request,
+    ::grpc::Status createAudioChannel(::grpc::ServerContext *context, const ::CreateAudioChannelRequest *request,
                                       ::CreateAudioChannelResponse *response) {
         std::string messageInJson;
         google::protobuf::util::MessageToJsonString(*request, &messageInJson);

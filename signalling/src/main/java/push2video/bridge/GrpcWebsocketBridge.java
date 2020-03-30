@@ -38,7 +38,22 @@ public class GrpcWebsocketBridge {
 
     public static boolean sendToServer(String peerId, PeerMessageRequest peerMessageRequest) {
         //Update all peers in channel list
-        peerMessageRequest.getPeersInChannelList().addAll(peerChannelMap.get(Constants.DEFUALT_AUDIO_CHANNEL));
+        if (peerMessageRequest.getMessageCase().equals(PeerMessageRequest.MessageCase.SDPMESSAGE)
+                && peerMessageRequest.getSdpMessage().getMediaType().equals(SdpMessage.MediaType.VIDEO)
+                && peerMessageRequest.getSdpMessage().getDirection().equals(SdpMessage.Direction.SENDER)) {
+            PeerMessageRequest.Builder peerMessageRequestOrBuilder = PeerMessageRequest.newBuilder();
+            peerMessageRequestOrBuilder.setChannelId(peerMessageRequest.getChannelId());
+            peerMessageRequestOrBuilder.setPeerId(peerMessageRequest.getPeerId());
+            peerMessageRequestOrBuilder.setSdpMessage(SdpMessage.newBuilder()
+                    .setDirection(SdpMessage.Direction.SENDER)
+                    .setMediaType(SdpMessage.MediaType.VIDEO)
+                    .setEndpoint(SdpMessage.Endpoint.CLIENT)
+                    .setSdp(peerMessageRequest.getSdpMessage().getSdp())
+                    .setType(peerMessageRequest.getSdpMessage().getType())
+                    .build());
+            peerMessageRequestOrBuilder.addAllPeersInChannel(peerChannelMap.get(Constants.DEFUALT_AUDIO_CHANNEL));
+            peerMessageRequest = peerMessageRequestOrBuilder.build();
+        }
         boolean success = push2VideoClient.sendPeerSdpIceMessages(peerId, peerMessageRequest);
         if (!success) {
             try {
@@ -79,6 +94,9 @@ public class GrpcWebsocketBridge {
             if (videoLock) {
                 switch (peerMessageRequest.getMessageCase()) {
                     case SDPMESSAGE:
+                        if (peerMessageRequest.getSdpMessage().getMediaType().equals(SdpMessage.MediaType.AUDIO)) {
+                            return true;
+                        }
                         switch (peerMessageRequest.getSdpMessage().getDirection()) {
                             case SENDER:
                                 logger.error("Already video locked! Another sender dropped");
@@ -87,6 +105,9 @@ public class GrpcWebsocketBridge {
                                 return true;
                         }
                     case PEERSTATUSMESSAGE:
+                        if (peerMessageRequest.getPeerStatusMessage().getStatus().equals(PeerStatusMessage.Status.AUDIO_RESET)) {
+                            return true;
+                        }
                         switch (peerMessageRequest.getPeerStatusMessage().getStatus()) {
                             case VIDEO_RESET:
                             case DISCONNECTED:
@@ -104,7 +125,8 @@ public class GrpcWebsocketBridge {
                 }
             } else {
                 if (peerMessageRequest.getMessageCase().equals(PeerMessageRequest.MessageCase.SDPMESSAGE)
-                        && peerMessageRequest.getSdpMessage().getDirection().equals(SdpMessage.Direction.SENDER)) {
+                        && peerMessageRequest.getSdpMessage().getDirection().equals(SdpMessage.Direction.SENDER)
+                        && peerMessageRequest.getSdpMessage().getMediaType().equals(SdpMessage.MediaType.VIDEO)) {
                     logger.error("No Video lock! Adding sender " + peerMessageRequest.getPeerId() + " for video lock");
                     videoLock = true;
                     videoLockPeer = peerMessageRequest.getPeerId();

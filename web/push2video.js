@@ -340,7 +340,6 @@ function gotMessageFromServer(message) {
 			});
 		}
 		if(signal.sdpMessage.direction == 'RECEIVER' && signal.sdpMessage.mediaType == 'AUDIO'){
-		    startRecvVideo();
 			sdpMsg = {
 				sdp: signal.sdpMessage.sdp,
 				type: signal.sdpMessage.type
@@ -358,6 +357,7 @@ function gotMessageFromServer(message) {
             });
         }
         if(signal.sdpMessage.direction == 'RECEIVER' && signal.sdpMessage.mediaType == 'VIDEO'){
+            startRecvVideo();
             sdpMsg = {
                 sdp: signal.sdpMessage.sdp,
                 type: signal.sdpMessage.type
