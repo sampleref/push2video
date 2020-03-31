@@ -386,7 +386,7 @@ function gotMessageFromServer(message) {
         }
         if(signal.channelStatusMessage.status == 'VIDEO_UNLOCKED'){
             console.info(" Video channel unlocked!");
-            peerIdVar = false;
+            videoLock = false;
         }
 	}
     else if (signal.sdpMessage) {
