@@ -1,4 +1,4 @@
-# GStreamer based server
+# GStreamer based push2talk server
 
 Summary:
 
@@ -21,16 +21,16 @@ Steps:
 3. Run docker build
 
     tag=1.0
-    docker build -t push2video_server:${tag} --build-arg http_proxy=$http_proxy --build-arg https_proxy=$https_proxy .
+    docker build -t push2talk_server:${tag} --build-arg http_proxy=$http_proxy --build-arg https_proxy=$https_proxy .
 
     #To enable test and coverage data, build with arg WITH_TEST=ON as below,
-    docker build -t push2video_server:${tag} --build-arg http_proxy=$http_proxy --build-arg https_proxy=$https_proxy --build-arg no_proxy="127.0.0.1" --build-arg WITH_TEST=ON .
+    docker build -t push2talk_server:${tag} --build-arg http_proxy=$http_proxy --build-arg https_proxy=$https_proxy --build-arg no_proxy="127.0.0.1" --build-arg WITH_TEST=ON .
 
 4. Push docker image to repo
 
     tag=1.0
-    docker push push2video_server:${tag}
+    docker push push2talk_server:${tag}
 
 5. Running docker container - for test purposes
 
-    docker run -d -v /mnt/media/av/:/mnt/av --net=host push2video_server:${tag}
+    docker run -d -v /mnt/media/av/:/mnt/av --net=host push2talk_server:${tag}

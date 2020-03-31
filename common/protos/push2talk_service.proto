@@ -51,6 +51,14 @@ message PeerStatusMessage {
     }
 }
 
+message ChannelStatusMessage {
+    Status status = 1;
+    enum Status {
+        VIDEO_LOCKED = 0;
+        VIDEO_UNLOCKED = 1;
+    }
+}
+
 message SdpMessage {
     string sdp = 1;
     string type = 2; // type: offer/answer
@@ -98,8 +106,9 @@ message PeerMessageRequest {
         PeerStatusMessage peerStatusMessage = 3;
         SdpMessage sdpMessage = 4;
         IceMessage iceMessage = 5;
+        ChannelStatusMessage channelStatusMessage = 6;
     }
-    repeated string peersInChannel = 6;
+    repeated string peersInChannel = 7;
 }
 
 message CreateAudioChannelRequest {

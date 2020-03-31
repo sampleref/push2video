@@ -9,6 +9,7 @@ var peerConnectionConfig = { 'iceServers': [{ 'url': 'stun:stun.services.mozilla
 var channelIdVar = "AUDI0_001_CHANNEL";
 var peerIdVar;
 var streamVar;
+var videoLock = true;
 
 navigator.getUserMedia = navigator.getUserMedia || navigator.mozGetUserMedia || navigator.webkitGetUserMedia;
 window.RTCPeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
@@ -32,6 +33,12 @@ function pageReady() {
     videosrc = document.getElementById("videoId");
 	audioRecv = document.getElementById("audioRecv");
     serverConnection = new WebSocket('wss://' + window.location.hostname + ':9443/signalling');
+	document.getElementById("ws_msg").innerHTML  = "Please open url: <a href='https://"
+													+ window.location.hostname
+													+ ":9443/signalling' target='_blank'>https://"
+													+ window.location.hostname
+													+ ":9443/signalling</a> in new tab and "
+													+ "validate certificate if <b>'Peer Id'</b> below is not assigned and Refresh(F5)";
     serverConnection.onmessage = gotMessageFromServer;
     serverConnection.onopen = ServerOpen;
     serverConnection.onerror = ServerError;
@@ -76,6 +83,14 @@ function toggleStopVideo(enable) {
 //Once sent ADD_PEER, if device is PLAYING NDN SERVER will trigger the call as caller and browser is callee to answer else error message is sent
 //In an order first SDP negotiation happens and then ICE negotiation it triggered
 function startVideo() {
+    if(!peerIdVar){
+        alert('Peer Id not assigned yet!')
+        return;
+    }
+    if(videoLock){
+        alert('Video is locked by other sender! Please try in a while')
+        return;
+    }
     //Only Send Video
     var offerConstraints = {
         "optional": [
@@ -96,12 +111,16 @@ function startVideo() {
 			peerConnectionVideoSend.addTrack(track, streamVar);
 		}
 	});
-    
+
     peerConnectionVideoSend.onicecandidate = gotIceCandidateVideoSend;
     peerConnectionVideoSend.createOffer(gotDescriptionVideoSend, createOfferError, offerConstraints);
 }
 
 function stopVideo() {
+    if(!peerIdVar){
+        alert('Peer Id not assigned yet!')
+        return;
+    }
     console.log("Closing peerConnectionVideoSend");
     if(peerConnectionVideoSend == null){
         alert('Already Stopped!');
@@ -122,6 +141,10 @@ function stopVideo() {
 }
 
 function joinAudio(){
+    if(!peerIdVar){
+        alert('Peer Id not assigned yet!')
+        return;
+    }
 	//Only Send audio
 	var offerConstraints = {
 		"optional": [
@@ -142,6 +165,31 @@ function joinAudio(){
 	peerConnectionAudioRecv = new RTCPeerConnection(peerConnectionConfig);
     peerConnectionAudioRecv.onicecandidate = gotIceCandidateAudioRecv;
     peerConnectionAudioRecv.ontrack = gotRemoteAudioStream;
+}
+
+function quitAudio(){
+    if(!peerIdVar){
+        alert('Peer Id not assigned yet!')
+        return;
+    }
+    if(peerConnectionAudioSend != null){
+        peerConnectionAudioSend.close();
+        peerConnectionAudioSend = null;
+    }
+    if(peerConnectionAudioRecv != null){
+        peerConnectionAudioRecv.close();
+        peerConnectionAudioRecv = null;
+    }
+    msg = {
+        peerId: peerIdVar,
+        channelId: channelIdVar,
+        peerStatusMessage: {
+            status: 'AUDIO_RESET'
+        }
+    };
+    serverConnection.send(JSON.stringify(msg));
+    console.debug("Sent audio reset");
+	videosrc.srcObject = null;
 }
 
 function startRecvVideo(){
@@ -328,9 +376,18 @@ function gotMessageFromServer(message) {
 	if(signal.peerStatusMessage){
 		if(signal.peerStatusMessage.status == 'CONNECTED'){
 			console.info(" Peer connected with Peer Id:", signal.peerId);
-			document.getElementById("peerId").innerHTML  = signal.peerId;
+			document.getElementById("peerId").innerHTML  = '<b>' + signal.peerId + '</b>';
 			peerIdVar = signal.peerId;
 		}
+	}else if(signal.channelStatusMessage){
+	    if(signal.channelStatusMessage.status == 'VIDEO_LOCKED'){
+            console.info(" Video channel locked!");
+            videoLock = true;
+        }
+        if(signal.channelStatusMessage.status == 'VIDEO_UNLOCKED'){
+            console.info(" Video channel unlocked!");
+            peerIdVar = false;
+        }
 	}
     else if (signal.sdpMessage) {
 		if(signal.sdpMessage.direction == 'SENDER' && signal.sdpMessage.mediaType == 'AUDIO'){

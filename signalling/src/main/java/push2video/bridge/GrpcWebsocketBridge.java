@@ -1,5 +1,6 @@
 package push2video.bridge;
 
+import com.push2talk.rpc.events.ChannelStatusMessage;
 import com.push2talk.rpc.events.PeerMessageRequest;
 import com.push2talk.rpc.events.PeerStatusMessage;
 import com.push2talk.rpc.events.SdpMessage;
@@ -9,6 +10,7 @@ import push2video.grpc.Push2VideoClient;
 import push2video.utils.Constants;
 
 import javax.websocket.EncodeException;
+import javax.websocket.RemoteEndpoint;
 import javax.websocket.Session;
 import java.io.IOException;
 import java.util.Collections;
@@ -115,6 +117,7 @@ public class GrpcWebsocketBridge {
                                     logger.error("Video lock peer stopped/disconnected. Releasing lock");
                                     videoLock = false;
                                     videoLockPeer = "";
+                                    sendVideoLockUpdate(videoLock);
                                 }
                                 return true;
                             default:
@@ -127,13 +130,41 @@ public class GrpcWebsocketBridge {
                 if (peerMessageRequest.getMessageCase().equals(PeerMessageRequest.MessageCase.SDPMESSAGE)
                         && peerMessageRequest.getSdpMessage().getDirection().equals(SdpMessage.Direction.SENDER)
                         && peerMessageRequest.getSdpMessage().getMediaType().equals(SdpMessage.MediaType.VIDEO)) {
-                    logger.error("No Video lock! Adding sender " + peerMessageRequest.getPeerId() + " for video lock");
+                    logger.error("Video locked ! Adding sender " + peerMessageRequest.getPeerId() + " for video lock");
                     videoLock = true;
                     videoLockPeer = peerMessageRequest.getPeerId();
+                    sendVideoLockUpdate(videoLock);
                 }
             }
         }
         return true;
+    }
+
+    public static boolean videoLock() {
+        return videoLock;
+    }
+
+    private static void sendVideoLockUpdate(boolean videoLock) {
+        for (Map.Entry<String, Session> peerSession : peerSessionMap.entrySet()) {
+            PeerMessageRequest peerMessageRequestVideoState;
+            if (videoLock) {
+                peerMessageRequestVideoState = PeerMessageRequest.newBuilder().setPeerId(peerSession.getKey())
+                        .setChannelStatusMessage(ChannelStatusMessage.newBuilder().setStatus(ChannelStatusMessage.Status.VIDEO_LOCKED).build())
+                        .build();
+            } else {
+                peerMessageRequestVideoState = PeerMessageRequest.newBuilder().setPeerId(peerSession.getKey())
+                        .setChannelStatusMessage(ChannelStatusMessage.newBuilder().setStatus(ChannelStatusMessage.Status.VIDEO_UNLOCKED).build())
+                        .build();
+            }
+            try {
+                RemoteEndpoint.Basic basic = peerSession.getValue() != null ? peerSession.getValue().getBasicRemote() : null;
+                if (basic != null) {
+                    peerSession.getValue().getBasicRemote().sendObject(peerMessageRequestVideoState);
+                }
+            } catch (Exception e) {
+                logger.error(e);
+            }
+        }
     }
 
 }
