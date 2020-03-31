@@ -103,6 +103,7 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
                             case SdpMessage_MediaType_VIDEO: {
                                 if (videoPipelineHandlerPtr == NULL) {
                                     videoPipelineHandlerPtr = std::make_shared<VideoPipelineHandler>();
+                                    push2talkUtils::videoPipelineHandlers[request->channelid()] = videoPipelineHandlerPtr;
                                 }
                                 std::list<std::string> receivers;
                                 for (std::string receiver : request->peersinchannel()) {
