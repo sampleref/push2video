@@ -82,13 +82,21 @@ function toggleStopVideo(enable) {
 //Once on start create peerConnection with callbacks and then send ADD_PEER
 //Once sent ADD_PEER, if device is PLAYING NDN SERVER will trigger the call as caller and browser is callee to answer else error message is sent
 //In an order first SDP negotiation happens and then ICE negotiation it triggered
-function startVideo() {
+function startVideo(start) {
     if(!peerIdVar){
         alert('Peer Id not assigned yet!')
         return;
     }
-    if(videoLock){
-        alert('Video is locked by other sender! Please try in a while')
+    if(!start){
+        msg = {
+            peerId: peerIdVar,
+            channelId: channelIdVar,
+            channelStatusMessage: {
+                status: 'VIDEO_UNLOCKED'
+            }
+        };
+        serverConnection.send(JSON.stringify(msg));
+        console.debug("Sent video lock request");
         return;
     }
     //Only Send Video
@@ -382,11 +390,13 @@ function gotMessageFromServer(message) {
 	}else if(signal.channelStatusMessage){
 	    if(signal.channelStatusMessage.status == 'VIDEO_LOCKED'){
             console.info(" Video channel locked!");
+            alert('Video is locked by other peer!');
             videoLock = true;
         }
         if(signal.channelStatusMessage.status == 'VIDEO_UNLOCKED'){
             console.info(" Video channel unlocked!");
             videoLock = false;
+            startVideo(true);
         }
 	}
     else if (signal.sdpMessage) {

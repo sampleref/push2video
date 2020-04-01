@@ -38,8 +38,14 @@ public class SignallingWebsocketHandler {
     @OnMessage
     public void onMessage(PeerMessageRequest message, Session session) throws IOException, EncodeException {
         logger.debug("Message received from " + session.getId());
-        if (GrpcWebsocketBridge.updateLockAndVerify(message)) {
-            GrpcWebsocketBridge.sendToServer(GrpcWebsocketBridge.sessionPeerMap.get(session.getId()), message);
+        switch (message.getMessageCase()) {
+            case CHANNELSTATUSMESSAGE:
+                sendVideoLockStatusToPeer(session);
+                break;
+            default:
+                if (GrpcWebsocketBridge.updateLockAndVerify(message)) {
+                    GrpcWebsocketBridge.sendToServer(GrpcWebsocketBridge.sessionPeerMap.get(session.getId()), message);
+                }
         }
     }
 
@@ -51,6 +57,8 @@ public class SignallingWebsocketHandler {
         GrpcWebsocketBridge.updateLockAndVerify(request);
         GrpcWebsocketBridge.peerChannelMap.get(Constants.DEFUALT_AUDIO_CHANNEL).remove(GrpcWebsocketBridge.sessionPeerMap.get(session.getId()));
         GrpcWebsocketBridge.sendStatusToServer(GrpcWebsocketBridge.sessionPeerMap.get(session.getId()), PeerStatusMessage.Status.DISCONNECTED);
+        GrpcWebsocketBridge.peerSessionMap.remove(GrpcWebsocketBridge.sessionPeerMap.get(session.getId()));
+        GrpcWebsocketBridge.sessionPeerMap.remove(session.getId());
     }
 
     @OnError
@@ -64,24 +72,36 @@ public class SignallingWebsocketHandler {
         PeerMessageRequest peerMessageRequestConnected = PeerMessageRequest.newBuilder().setPeerId(randomString)
                 .setPeerStatusMessage(PeerStatusMessage.newBuilder().setStatus(PeerStatusMessage.Status.CONNECTED).build())
                 .build();
-        PeerMessageRequest peerMessageRequestVideoState;
-        if (GrpcWebsocketBridge.videoLock()) {
-            peerMessageRequestVideoState = PeerMessageRequest.newBuilder().setPeerId(randomString)
-                    .setChannelStatusMessage(ChannelStatusMessage.newBuilder().setStatus(ChannelStatusMessage.Status.VIDEO_LOCKED).build())
-                    .build();
-        } else {
-            peerMessageRequestVideoState = PeerMessageRequest.newBuilder().setPeerId(randomString)
-                    .setChannelStatusMessage(ChannelStatusMessage.newBuilder().setStatus(ChannelStatusMessage.Status.VIDEO_UNLOCKED).build())
-                    .build();
-        }
         try {
             session.getBasicRemote().sendObject(peerMessageRequestConnected);
-            session.getBasicRemote().sendObject(peerMessageRequestVideoState);
         } catch (Exception e) {
             logger.error(e);
             return "";
         }
         return randomString;
+    }
+
+    private static void sendVideoLockStatusToPeer(Session session) {
+        PeerMessageRequest.Builder peerMessageRequestVideoStateBuilder;
+        String peerId = GrpcWebsocketBridge.sessionPeerMap.get(session.getId());
+        if (StringUtils.isBlank(peerId)) {
+            logger.error("Invalid peer for session: " + session.getId());
+            return;
+        }
+        peerMessageRequestVideoStateBuilder = PeerMessageRequest.newBuilder();
+        peerMessageRequestVideoStateBuilder.setPeerId(peerId);
+        if (GrpcWebsocketBridge.videoLock()) {
+            logger.info("Video lock true for peerId: " + peerId);
+            peerMessageRequestVideoStateBuilder.setChannelStatusMessage(ChannelStatusMessage.newBuilder().setStatus(ChannelStatusMessage.Status.VIDEO_LOCKED).build());
+        } else {
+            logger.info("Video lock false for peerId: " + peerId);
+            peerMessageRequestVideoStateBuilder.setChannelStatusMessage(ChannelStatusMessage.newBuilder().setStatus(ChannelStatusMessage.Status.VIDEO_UNLOCKED).build());
+        }
+        try {
+            session.getBasicRemote().sendObject(peerMessageRequestVideoStateBuilder.build());
+        } catch (Exception e) {
+            logger.error(e);
+        }
     }
 
 }
