@@ -33,4 +33,4 @@ Steps:
 
 5. Running docker container - for test purposes
 
-    docker run -d -v /mnt/media/av/:/mnt/av --net=host push2talk_server:${tag}
+    docker run -v /mnt/media/av/:/mnt/av --net=host -e GST_DEBUG=3,push2talk_gst:4 push2talk_server:${tag}

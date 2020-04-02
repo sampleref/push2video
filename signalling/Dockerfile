@@ -1,8 +1,8 @@
 FROM openjdk:8-jre
 
 USER root
-ADD /push2video-signaller.jar //
-ADD /log4j2.xml /conf/
+ADD target/push2video-signaller.jar //
+ADD src/main/resources/log4j2.xml /conf/
 
 EXPOSE 17102
 EXPOSE 9443
