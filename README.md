@@ -1,4 +1,4 @@
-# push2video
+# push2talk
 
 Refer to individual README in server,signalling and web folders
 
