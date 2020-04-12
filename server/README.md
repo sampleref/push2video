@@ -2,11 +2,11 @@
 
 Summary:
 
-1. Build uses base docker images at:
-    -> dockerhub: nas2docker/gstreamer_grpc:1.0
-    -> dockerhub: skip virtual interfaces in libnice: nas2docker/gstreamer_grpc:1.3
-       https://gitlab.freedesktop.org/libnice/libnice/issues/95
-       https://gitlab.freedesktop.org/libnice/libnice/-/merge_requests/60
+1. Build uses base docker images at:    
+    -> dockerhub: nas2docker/gstreamer_grpc:1.0    
+    -> dockerhub: skip virtual interfaces in libnice: nas2docker/gstreamer_grpc:1.3    
+       https://gitlab.freedesktop.org/libnice/libnice/issues/95    
+       https://gitlab.freedesktop.org/libnice/libnice/-/merge_requests/60    
     -> Built from github Dockerfiles: https://github.com/sampleref/gstreamer
 
 
