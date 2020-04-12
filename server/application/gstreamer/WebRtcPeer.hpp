@@ -32,6 +32,7 @@ public:
     GstElement *webrtcElement;
     std::string sdp;
     std::string sdp_type;
+    std::string videoSrcPadName;
 
     //Methods
     gboolean isValidSdp(void);

@@ -36,6 +36,8 @@ public:
 
     gboolean start_pipeline();
 
+    void send_key_frame_request_to_sender();
+
     void apply_webrtc_video_sender_sdp(std::string peerId, std::string sdp, std::string type);
 
     void apply_webrtc_video_receiver_sdp(std::string peerId, std::string sdp, std::string type);

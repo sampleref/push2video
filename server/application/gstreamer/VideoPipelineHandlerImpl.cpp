@@ -178,6 +178,7 @@ void on_incoming_stream_video(GstElement *webrtc, GstPad *pad, WebRtcPeer *webRt
     } else if (g_strrstr(capsName, "video")) {
         gchar *tmp;
         GstElement *rtpvp8depay;
+        webRtcVideoPeer->videoSrcPadName = dynamic_pad_name;
         tmp = g_strdup_printf("rtpvp8depay_send-%s", webRtcVideoPeer->peerId.c_str());
         rtpvp8depay = gst_bin_get_by_name(GST_BIN (videoPipelineHandlerPtr->pipeline), tmp);
         g_free(tmp);
@@ -291,14 +292,16 @@ void launch_pipeline_video(std::string channelId) {
             gst_bin_add_many(GST_BIN(pipelineHandlerPtr->pipeline), watchdog_audio, NULL);
             g_object_set(watchdog_audio, "timeout", WATCHDOG_MILLI_SECS, NULL);
             if (!gst_element_link_many(opusdepay, watchdog_audio, opusdec, opusenc, audiotee, NULL)) {
-                GST_ERROR("add_webrtc_video_receiver: Error linking rtpopusdepay to watchdog to opusdec/enc to audiotee for peer %s ",
-                          pipelineHandlerPtr->senderPeerId.c_str());
+                GST_ERROR(
+                        "add_webrtc_video_receiver: Error linking rtpopusdepay to watchdog to opusdec/enc to audiotee for peer %s ",
+                        pipelineHandlerPtr->senderPeerId.c_str());
                 return;
             }
         } else {
             if (!gst_element_link_many(opusdepay, opusdec, opusenc, audiotee, NULL)) {
-                GST_ERROR("add_webrtc_video_receiver: Error linking rtpopusdepay to opusdec/enc to audiotee for peer %s ",
-                          pipelineHandlerPtr->senderPeerId.c_str());
+                GST_ERROR(
+                        "add_webrtc_video_receiver: Error linking rtpopusdepay to opusdec/enc to audiotee for peer %s ",
+                        pipelineHandlerPtr->senderPeerId.c_str());
                 return;
             }
         }
@@ -368,6 +371,24 @@ void on_answer_created_video(GstPromise *promise, WebRtcPeer *webRtcVideoPeer) {
     push2talkUtils::fetch_video_pipelinehandler_by_key(webRtcVideoPeer->channelId)->send_webrtc_video_sender_sdp(
             webRtcVideoPeer->peerId, text, "answer");
     gst_webrtc_session_description_free(answer);
+}
+
+void VideoPipelineHandler::send_key_frame_request_to_sender() {
+    GST_INFO("Sending key frame request for sender peer %s ", senderPeerId.c_str());
+    if (pipeline) {
+        GstPad *videosrcpad;
+        videosrcpad = gst_element_get_static_pad(senderPeer->webrtcElement, senderPeer->videoSrcPadName.c_str());
+        if (videosrcpad) {
+            gst_pad_send_event(videosrcpad, gst_event_new_custom(GST_EVENT_CUSTOM_UPSTREAM,
+                                                                 gst_structure_new("GstForceKeyUnit", "all-headers",
+                                                                                   G_TYPE_BOOLEAN, TRUE, NULL)));
+        } else {
+            GST_ERROR("Sender webrtcbin video src pad %s not exists for sender peer %s ",
+                      senderPeer->videoSrcPadName.c_str(), senderPeerId.c_str());
+        }
+    } else {
+        GST_ERROR("Pipeline not exists for sender peer %s ", senderPeerId.c_str());
+    }
 }
 
 void VideoPipelineHandler::apply_webrtc_video_sender_sdp(std::string peerId, std::string sdp, std::string type) {
@@ -456,6 +477,9 @@ void VideoPipelineHandler::apply_webrtc_video_receiver_sdp(std::string peerId, s
             gst_promise_unref(promise);
         }
         GST_INFO("apply_webrtc_audio_receiver_sdp completed for receiver peer %s ", peerId.c_str());
+
+        //Force a keyframe request from sender for this receiver to start video playback at earliest
+        send_key_frame_request_to_sender();
     } else {
         GST_ERROR("No receiver peer %s, cannot apply offer!", peerId.c_str());
     }
@@ -672,6 +696,7 @@ void VideoPipelineHandler::remove_sender_peer_close_pipeline() {
         } else {
             GST_INFO("Nullifying pipeline timeout for channel %s ", channelId.c_str());
         }
+        pipeline = NULL;
     }
     if (loop) {
         GST_INFO("Stopping main loop for peer id %s ", senderPeerId.c_str());
