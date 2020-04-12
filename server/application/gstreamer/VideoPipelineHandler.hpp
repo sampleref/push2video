@@ -24,6 +24,9 @@ public:
     GMainLoop *loop;
     std::string senderPeerId;
     WebRtcPeerPtr senderPeer;
+    bool audio_valid = false;
+    bool video_valid = false;
+    bool apply_watchdog = false;
     std::map<std::string, WebRtcPeerPtr> peerVideoReceivers; //Peers receiving common video from pipeline
 
     //Methods

@@ -26,6 +26,12 @@
 			float: left;
 		}
 
+		#status_div {
+			padding-top: 10px;
+			float: left;
+			clear:both;
+		}
+
 		.buttonStart {
 			border-radius: 12px;
 			display: inline-block;
@@ -51,10 +57,14 @@
     </div>
 
     <div style="width: 800px; float: left;">
-        <video id="videoId" autoplay muted style="width:800px;height:600px" class="webrtc_video"></video>
+        <video id="videoId" autoplay muted controls style="width:800px;height:600px" class="webrtc_video"></video>
 
         <br />
 
+    </div>
+
+    <div id="status_div">
+        <b>Status:</b> <label id="sendrecvstatus"></label>
     </div>
 
     <div id="controls_div">

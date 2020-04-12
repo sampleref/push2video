@@ -79,6 +79,10 @@ function toggleStopVideo(enable) {
     }
 }
 
+function setStatusText(colorVal, textVal) {
+	document.getElementById("sendrecvstatus").innerHTML  = '<b><span style="color: ' + colorVal +'";>' + textVal + '</span></b>';
+}
+
 //Once on start create peerConnection with callbacks and then send ADD_PEER
 //Once sent ADD_PEER, if device is PLAYING NDN SERVER will trigger the call as caller and browser is callee to answer else error message is sent
 //In an order first SDP negotiation happens and then ICE negotiation it triggered
@@ -113,9 +117,20 @@ function startVideo(start) {
     }
     // Create peerConnection and attach onicecandidate, ontrack callbacks
     peerConnectionVideoSend = new RTCPeerConnection(peerConnectionConfig);
+	peerConnectionVideoSend.addEventListener("iceconnectionstatechange", ev => {
+	  console.log('Send video ice connection state ' + peerConnectionVideoSend.iceConnectionState);
+	  if('connected' == peerConnectionVideoSend.iceConnectionState) {
+		setStatusText('green', 'Sending... ==>>==>>==>>');
+	  }
+	}, false);
 	videosrc.srcObject = streamVar;
 	streamVar.getTracks().forEach(track => {
+		if(track.kind == 'audio'){
+			console.log('Adding audio');
+			peerConnectionVideoSend.addTrack(track, streamVar);
+		}
 		if(track.kind == 'video'){
+			console.log('Adding video');
 			peerConnectionVideoSend.addTrack(track, streamVar);
 		}
 	});
@@ -135,6 +150,7 @@ function stopVideo() {
         return;
     }
     peerConnectionVideoSend.close();
+	setStatusText('green', '');
     peerConnectionVideoSend = null;
     msg = {
         peerId: peerIdVar,
@@ -202,6 +218,18 @@ function quitAudio(){
 
 function startRecvVideo(){
     peerConnectionVideoRecv = new RTCPeerConnection(peerConnectionConfig);
+	peerConnectionVideoRecv.addEventListener("iceconnectionstatechange", ev => {
+	  console.log('Receive video ice connection state ' + peerConnectionVideoRecv.iceConnectionState);
+	  if('connected' == peerConnectionVideoRecv.iceConnectionState) {
+		setStatusText('red', 'Receiving... <<==<<==<<==');
+	  }
+	  if('disconnected' == peerConnectionVideoRecv.iceConnectionState) {
+		console.log('Closing Video Reception!');
+		setStatusText('green', '');
+		peerConnectionVideoRecv.close();
+		peerConnectionVideoRecv = null;
+	  }
+	}, false);
     peerConnectionVideoRecv.onicecandidate = gotIceCandidateVideoRecv;
     peerConnectionVideoRecv.ontrack = gotRemoteVideoStream;
 }

@@ -11,6 +11,7 @@
 #include <gst/webrtc/webrtc.h>
 
 #include "VideoPipelineHandler.hpp"
+#include "GstMediaUtils.hpp"
 #include "../grpc/GrpcService.hpp"
 #include "../utils/Push2TalkUtils.hpp"
 #include "WebRtcPeer.hpp"
@@ -19,9 +20,8 @@ GST_DEBUG_CATEGORY_EXTERN (push2talk_gst);
 #define GST_CAT_DEFAULT push2talk_gst
 
 #define STUN_SERVER " stun-server=stun://stun.l.google.com:19302 "
-#define RTP_CAPS_OPUS "application/x-rtp,media=audio,encoding-name=OPUS,payload="
+#define RTP_CAPS_OPUS "application/x-rtp,media=audio,encoding-name=OPUS,payload=111"
 #define RTP_CAPS_VP8 "application/x-rtp,media=video,encoding-name=VP8,payload=96"
-#define RTP_CAPS_H264 "application/x-rtp,media=video,encoding-name=H264,payload=96"
 
 void send_video_reset(VideoPipelineHandler *videoPipelineHandler) {
     PeerMessageRequest peerMessageRequest;
@@ -93,6 +93,15 @@ gboolean pipeline_bus_callback_video(GstBus *bus, GstMessage *message, gpointer 
 void VideoPipelineHandler::create_video_pipeline_sender_peer(std::string channelId, std::string senderPeerId,
                                                              std::list<std::string> receivers,
                                                              std::string sdp, std::string type) {
+    SdpMediaStatePtr mediaStatePtr = gstMediaUtils::load_media_state_in_sdp(sdp);
+    if (!mediaStatePtr->valid) {
+        GST_ERROR("Invalid SDP received for sender peer Id %s as %s ", senderPeerId.c_str(), senderPeer->sdp.c_str());
+        release_video_pipeline(this);
+        return;
+    }
+    audio_valid = mediaStatePtr->audio;
+    video_valid = mediaStatePtr->video;
+
     this->channelId = channelId;
     WebRtcPeerPtr webRtcPeerPtr = std::make_shared<WebRtcPeer>();
     webRtcPeerPtr->webRtcMediaType = VIDEO;
@@ -140,8 +149,8 @@ void on_incoming_stream_video(GstElement *webrtc, GstPad *pad, WebRtcPeer *webRt
 
     GstCaps *caps;
     const gchar *name;
+    char *capsName;
     gchar *dynamic_pad_name;
-    GstElement *rtpvp8depay;
     dynamic_pad_name = gst_pad_get_name (pad);
     if (!gst_pad_has_current_caps(pad)) {
         GST_ERROR("Pad '%s' has no caps, can't do anything, ignoring",
@@ -150,22 +159,35 @@ void on_incoming_stream_video(GstElement *webrtc, GstPad *pad, WebRtcPeer *webRt
     }
 
     caps = gst_pad_get_current_caps(pad);
+    capsName = gst_caps_to_string(caps);
     name = gst_structure_get_name(gst_caps_get_structure(caps, 0));
-    GST_INFO("on_incoming_stream caps name %s ", name);
-    gchar *tmp;
-    tmp = g_strdup_printf("rtpvp8depay_send-%s", webRtcVideoPeer->peerId.c_str());
+    GST_INFO("on_incoming_stream caps name %s capsName %s ", name, capsName);
     VideoPipelineHandlerPtr videoPipelineHandlerPtr = push2talkUtils::fetch_video_pipelinehandler_by_key(
             webRtcVideoPeer->channelId);
-    rtpvp8depay = gst_bin_get_by_name(GST_BIN (videoPipelineHandlerPtr->pipeline), tmp);
-    g_free(tmp);
-    if (gst_element_link_pads(webrtc, dynamic_pad_name, rtpvp8depay, "sink")) {
-        GST_INFO("webrtc pad %s linked to rtpvp8depay_send", dynamic_pad_name);
+
+    if (g_strrstr(capsName, "audio")) {
+        gchar *tmp;
+        GstElement *rtpopusdepay;
+        tmp = g_strdup_printf("rtpopusdepay_send-%s", webRtcVideoPeer->peerId.c_str());
+        rtpopusdepay = gst_bin_get_by_name(GST_BIN (videoPipelineHandlerPtr->pipeline), tmp);
+        g_free(tmp);
+        if (gst_element_link_pads(webrtc, dynamic_pad_name, rtpopusdepay, "sink")) {
+            GST_INFO("webrtc pad %s linked to rtpopusdepay_send", dynamic_pad_name);
+        }
+        gst_object_unref(rtpopusdepay);
+    } else if (g_strrstr(capsName, "video")) {
+        gchar *tmp;
+        GstElement *rtpvp8depay;
+        tmp = g_strdup_printf("rtpvp8depay_send-%s", webRtcVideoPeer->peerId.c_str());
+        rtpvp8depay = gst_bin_get_by_name(GST_BIN (videoPipelineHandlerPtr->pipeline), tmp);
+        g_free(tmp);
+        if (gst_element_link_pads(webrtc, dynamic_pad_name, rtpvp8depay, "sink")) {
+            GST_INFO("webrtc pad %s linked to rtpvp8depay_send", dynamic_pad_name);
+        }
         gst_object_unref(rtpvp8depay);
-        g_free(dynamic_pad_name);
-        //videoPipelineHandlerPtr->create_receivers_for_video();
-        return;
     }
-    return;
+    g_free(dynamic_pad_name);
+    g_free(capsName);
 }
 
 void launch_pipeline_video(std::string channelId);
@@ -189,40 +211,97 @@ void launch_pipeline_video(std::string channelId) {
     }
 
     GstBus *bus;
-    GstElement *rtpvp8depay, *watchdog, *videotee;
-
     /* Create Elements */
     gchar *tmp = g_strdup_printf("video-pipeline");
     pipelineHandlerPtr->pipeline = gst_pipeline_new(tmp);
     g_free(tmp);
     tmp = g_strdup_printf("webrtcbin_send-%s", pipelineHandlerPtr->senderPeerId.c_str());
     pipelineHandlerPtr->senderPeer->webrtcElement = gst_element_factory_make("webrtcbin", tmp);
+    g_object_set(pipelineHandlerPtr->senderPeer->webrtcElement, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
+                 NULL);
     g_free(tmp);
-    tmp = g_strdup_printf("rtpvp8depay_send-%s", pipelineHandlerPtr->senderPeerId.c_str());
-    rtpvp8depay = gst_element_factory_make("rtpvp8depay", tmp);
-    g_free(tmp);
-    tmp = g_strdup_printf("watchdog_send-%s", pipelineHandlerPtr->senderPeerId.c_str());
-    watchdog = gst_element_factory_make("watchdog", tmp);
-    g_free(tmp);
-    tmp = g_strdup_printf("videotee-%s", pipelineHandlerPtr->senderPeerId.c_str());
-    videotee = gst_element_factory_make("tee", tmp);
-    g_free(tmp);
+    gst_bin_add_many(GST_BIN(pipelineHandlerPtr->pipeline), pipelineHandlerPtr->senderPeer->webrtcElement, NULL);
 
-    if (!pipelineHandlerPtr->pipeline || !rtpvp8depay || !watchdog || !videotee) {
-        GST_ERROR("launch_new_pipeline: Cannot create elements for video %s ", "base pipeline");
-        return;
+    if (pipelineHandlerPtr->video_valid) {
+        GstElement *rtpvp8depay, *watchdog_video, *videotee;
+        tmp = g_strdup_printf("rtpvp8depay_send-%s", pipelineHandlerPtr->senderPeerId.c_str());
+        rtpvp8depay = gst_element_factory_make("rtpvp8depay", tmp);
+        g_free(tmp);
+        tmp = g_strdup_printf("watchdog_video_send-%s", pipelineHandlerPtr->senderPeerId.c_str());
+        watchdog_video = gst_element_factory_make("watchdog", tmp);
+        g_free(tmp);
+        tmp = g_strdup_printf("videotee-%s", pipelineHandlerPtr->senderPeerId.c_str());
+        videotee = gst_element_factory_make("tee", tmp);
+        g_free(tmp);
+
+        if (!pipelineHandlerPtr->pipeline || !rtpvp8depay || !watchdog_video || !videotee) {
+            GST_ERROR("launch_new_pipeline: Cannot create elements for video %s ", "base pipeline");
+            return;
+        }
+
+        /* Add Elements to pipeline and set properties */
+        gst_bin_add_many(GST_BIN(pipelineHandlerPtr->pipeline), rtpvp8depay, videotee, NULL);
+        g_object_set(videotee, "allow-not-linked", TRUE, NULL);
+
+        if (pipelineHandlerPtr->apply_watchdog) {
+            gst_bin_add_many(GST_BIN(pipelineHandlerPtr->pipeline), watchdog_video, NULL);
+            g_object_set(watchdog_video, "timeout", WATCHDOG_MILLI_SECS, NULL);
+            if (!gst_element_link_many(rtpvp8depay, watchdog_video, videotee, NULL)) {
+                GST_ERROR("add_webrtc_video_receiver: Error linking rtpvp8depay to watchdog to videotee for peer %s ",
+                          pipelineHandlerPtr->senderPeerId.c_str());
+                return;
+            }
+        } else {
+            if (!gst_element_link_many(rtpvp8depay, videotee, NULL)) {
+                GST_ERROR("add_webrtc_video_receiver: Error linking rtpvp8depay to videotee for peer %s ",
+                          pipelineHandlerPtr->senderPeerId.c_str());
+                return;
+            }
+        }
     }
 
-    /* Add Elements to pipeline and set properties */
-    gst_bin_add_many(GST_BIN(pipelineHandlerPtr->pipeline), pipelineHandlerPtr->senderPeer->webrtcElement, rtpvp8depay,
-                     videotee, NULL);
-    g_object_set(watchdog, "timeout", 15000, NULL);
-    g_object_set(videotee, "allow-not-linked", TRUE, NULL);
+    if (pipelineHandlerPtr->audio_valid) {
+        GstElement *opusdepay, *watchdog_audio, *opusdec, *opusenc, *audiotee;
+        tmp = g_strdup_printf("rtpopusdepay_send-%s", pipelineHandlerPtr->senderPeerId.c_str());
+        opusdepay = gst_element_factory_make("rtpopusdepay", tmp);
+        g_free(tmp);
+        tmp = g_strdup_printf("watchdog_audio_send-%s", pipelineHandlerPtr->senderPeerId.c_str());
+        watchdog_audio = gst_element_factory_make("watchdog", tmp);
+        g_free(tmp);
+        tmp = g_strdup_printf("opusdec_audio_send-%s", pipelineHandlerPtr->senderPeerId.c_str());
+        opusdec = gst_element_factory_make("opusdec", tmp);
+        g_free(tmp);
+        tmp = g_strdup_printf("opusenc_audio_send-%s", pipelineHandlerPtr->senderPeerId.c_str());
+        opusenc = gst_element_factory_make("opusenc", tmp);
+        g_free(tmp);
+        tmp = g_strdup_printf("audiotee-%s", pipelineHandlerPtr->senderPeerId.c_str());
+        audiotee = gst_element_factory_make("tee", tmp);
+        g_free(tmp);
 
-    if (!gst_element_link_many(rtpvp8depay, videotee, NULL)) {
-        GST_ERROR("add_webrtc_video_receiver: Error linking rtpvp8depay to videotee for peer %s ",
-                  pipelineHandlerPtr->senderPeerId.c_str());
-        return;
+        if (!pipelineHandlerPtr->pipeline || !opusdepay || !watchdog_audio || !opusdec || !opusenc || !audiotee) {
+            GST_ERROR("launch_new_pipeline: Cannot create elements for audio %s ", "base pipeline");
+            return;
+        }
+
+        /* Add Elements to pipeline and set properties */
+        gst_bin_add_many(GST_BIN(pipelineHandlerPtr->pipeline), opusdepay, opusdec, opusenc, audiotee, NULL);
+        g_object_set(audiotee, "allow-not-linked", TRUE, NULL);
+
+        if (pipelineHandlerPtr->apply_watchdog) {
+            gst_bin_add_many(GST_BIN(pipelineHandlerPtr->pipeline), watchdog_audio, NULL);
+            g_object_set(watchdog_audio, "timeout", WATCHDOG_MILLI_SECS, NULL);
+            if (!gst_element_link_many(opusdepay, watchdog_audio, opusdec, opusenc, audiotee, NULL)) {
+                GST_ERROR("add_webrtc_video_receiver: Error linking rtpopusdepay to watchdog to opusdec/enc to audiotee for peer %s ",
+                          pipelineHandlerPtr->senderPeerId.c_str());
+                return;
+            }
+        } else {
+            if (!gst_element_link_many(opusdepay, opusdec, opusenc, audiotee, NULL)) {
+                GST_ERROR("add_webrtc_video_receiver: Error linking rtpopusdepay to opusdec/enc to audiotee for peer %s ",
+                          pipelineHandlerPtr->senderPeerId.c_str());
+                return;
+            }
+        }
     }
 
     g_assert_nonnull (pipelineHandlerPtr->senderPeer->webrtcElement);
@@ -467,7 +546,7 @@ void VideoPipelineHandler::send_webrtc_video_receiver_ice(std::string peerId, st
 void VideoPipelineHandler::remove_receiver_peer_from_pipeline(std::string peerId, bool remove_from_list) {
     gchar *tmp;
     GstPad *srcpad, *sinkpad;
-    GstElement *webrtc, *rtpvp8pay, *queue, *tee;
+    GstElement *webrtc, *rtpvp8pay, *rtpopuspay, *videoqueue, *audioqueue, *videotee, *audiotee;
 
     GST_INFO("remove receiver for peer %s ", peerId.c_str());
 
@@ -495,30 +574,69 @@ void VideoPipelineHandler::remove_receiver_peer_from_pipeline(std::string peerId
         gst_object_unref(rtpvp8pay);
     }
 
-    tmp = g_strdup_printf("queue_recv-%s", peerId.c_str());
-    queue = gst_bin_get_by_name(GST_BIN (pipeline), tmp);
+    tmp = g_strdup_printf("rtpopuspay_recv-%s", peerId.c_str());
+    rtpopuspay = gst_bin_get_by_name(GST_BIN (pipeline), tmp);
+    g_free(tmp);
+    if (rtpopuspay) {
+        gst_element_set_state(rtpopuspay, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(pipeline), rtpopuspay);
+        gst_object_unref(rtpopuspay);
+    }
+
+    tmp = g_strdup_printf("queue_video_recv-%s", peerId.c_str());
+    videoqueue = gst_bin_get_by_name(GST_BIN (pipeline), tmp);
     g_free(tmp);
 
-    if (queue) {
-        gst_element_set_state(queue, GST_STATE_NULL);
+    if (videoqueue) {
+        gst_element_set_state(videoqueue, GST_STATE_NULL);
 
-        sinkpad = gst_element_get_static_pad(queue, "sink");
+        sinkpad = gst_element_get_static_pad(videoqueue, "sink");
         g_assert_nonnull (sinkpad);
         srcpad = gst_pad_get_peer(sinkpad);
         g_assert_nonnull (srcpad);
         gst_object_unref(sinkpad);
 
-        gst_bin_remove(GST_BIN (pipeline), queue);
-        gst_object_unref(queue);
+        gst_bin_remove(GST_BIN (pipeline), videoqueue);
+        gst_object_unref(videoqueue);
 
-        tee = gst_bin_get_by_name(GST_BIN (pipeline), "videotee");
-        if (tee) {
-            g_assert_nonnull (tee);
-            gst_element_release_request_pad(tee, srcpad);
+        tmp = g_strdup_printf("videotee-%s", senderPeerId.c_str());
+        videotee = gst_bin_get_by_name(GST_BIN (pipeline), tmp);
+        g_free(tmp);
+        if (videotee) {
+            g_assert_nonnull (videotee);
+            gst_element_release_request_pad(videotee, srcpad);
             gst_object_unref(srcpad);
-            gst_object_unref(tee);
+            gst_object_unref(videotee);
         }
     }
+
+    tmp = g_strdup_printf("queue_audio_recv-%s", peerId.c_str());
+    audioqueue = gst_bin_get_by_name(GST_BIN (pipeline), tmp);
+    g_free(tmp);
+
+    if (audioqueue) {
+        gst_element_set_state(audioqueue, GST_STATE_NULL);
+
+        sinkpad = gst_element_get_static_pad(audioqueue, "sink");
+        g_assert_nonnull (sinkpad);
+        srcpad = gst_pad_get_peer(sinkpad);
+        g_assert_nonnull (srcpad);
+        gst_object_unref(sinkpad);
+
+        gst_bin_remove(GST_BIN (pipeline), audioqueue);
+        gst_object_unref(audioqueue);
+
+        tmp = g_strdup_printf("audiotee-%s", senderPeerId.c_str());
+        audiotee = gst_bin_get_by_name(GST_BIN (pipeline), tmp);
+        g_free(tmp);
+        if (audiotee) {
+            g_assert_nonnull (audiotee);
+            gst_element_release_request_pad(audiotee, srcpad);
+            gst_object_unref(srcpad);
+            gst_object_unref(audiotee);
+        }
+    }
+
     GST_INFO("Removed webrtcbin peer for remote peer : %s", peerId.c_str());
     if (remove_from_list) {
         remove_video_reciever_by_peerid(peerId);
@@ -618,27 +736,7 @@ void VideoPipelineHandler::create_receivers_for_video() {
         GArray *transceivers;
         int ret;
         gchar *tmp;
-        GstElement *tee, *queue, *rtpvp8pay;
-        GstCaps *caps;
         GstPad *srcpad, *sinkpad;
-        //Create queue
-        tmp = g_strdup_printf("queue_recv-%s", webRtcPeerPtr->peerId.c_str());
-        queue = gst_element_factory_make("queue", tmp);
-        g_object_set(queue, "leaky", 2, NULL);
-        g_free(tmp);
-
-        //Create rtph264pay with caps
-        tmp = g_strdup_printf("rtphvp8pay_recv-%s", webRtcPeerPtr->peerId.c_str());
-        rtpvp8pay = gst_element_factory_make("rtpvp8pay", tmp);
-        g_object_set(rtpvp8pay, "config-interval", -1, NULL);
-        g_object_set(rtpvp8pay, "pt", 96, NULL);
-        g_free(tmp);
-
-        srcpad = gst_element_get_static_pad(rtpvp8pay, "src");
-        caps = gst_caps_from_string(RTP_CAPS_VP8);
-        gst_pad_set_caps(srcpad, caps);
-        gst_caps_unref(caps);
-        gst_object_unref(srcpad);
 
         //Create webrtcbin
         tmp = g_strdup_printf("webrtcbin_recv-%s", webRtcPeerPtr->peerId.c_str());
@@ -646,55 +744,7 @@ void VideoPipelineHandler::create_receivers_for_video() {
         g_object_set(webRtcPeerPtr->webrtcElement, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, NULL);
         g_free(tmp);
 
-        //Add elements to pipeline
-        gst_bin_add_many(GST_BIN (pipeline), queue, rtpvp8pay, webRtcPeerPtr->webrtcElement, NULL);
-
-        //Link queue -> rtpvp8pay
-        srcpad = gst_element_get_static_pad(queue, "src");
-        g_assert_nonnull (srcpad);
-        sinkpad = gst_element_get_static_pad(rtpvp8pay, "sink");
-        g_assert_nonnull (sinkpad);
-        ret = gst_pad_link(srcpad, sinkpad);
-        g_assert_cmpint (ret, ==, GST_PAD_LINK_OK);
-        gst_object_unref(srcpad);
-        gst_object_unref(sinkpad);
-
-        //Link rtph264depay -> webrtcbin
-        srcpad = gst_element_get_static_pad(rtpvp8pay, "src");
-        g_assert_nonnull (srcpad);
-        sinkpad = gst_element_get_request_pad(webRtcPeerPtr->webrtcElement, "sink_%u");
-        g_assert_nonnull (sinkpad);
-        ret = gst_pad_link(srcpad, sinkpad);
-        g_assert_cmpint (ret, ==, GST_PAD_LINK_OK);
-        gst_object_unref(srcpad);
-        gst_object_unref(sinkpad);
-
-        //Link videotee -> queue
-        tmp = g_strdup_printf("videotee-%s", senderPeerId.c_str());
-        tee = gst_bin_get_by_name(GST_BIN (pipeline), tmp);
-        g_free(tmp);
-        g_assert_nonnull (tee);
-        srcpad = gst_element_get_request_pad(tee, "src_%u");
-        g_assert_nonnull (srcpad);
-        gst_object_unref(tee);
-        sinkpad = gst_element_get_static_pad(queue, "sink");
-        g_assert_nonnull (sinkpad);
-        ret = gst_pad_link(srcpad, sinkpad);
-        g_assert_cmpint (ret, ==, GST_PAD_LINK_OK);
-        gst_object_unref(srcpad);
-        gst_object_unref(sinkpad);
-
-        //Change webrtcbin to send only
-        g_signal_emit_by_name(webRtcPeerPtr->webrtcElement, "get-transceivers", &transceivers);
-        if (transceivers) {
-            GST_INFO("Changing webrtcbin for peer %s to sendonly. Number of transceivers(%d) ",
-                     webRtcPeerPtr->peerId.c_str(),
-                     transceivers->len);
-            g_assert_true(transceivers->len > 0);
-            trans = g_array_index (transceivers, GstWebRTCRTPTransceiver *, 0);
-            trans->direction = GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_SENDONLY;
-            g_array_unref(transceivers);
-        }
+        gst_bin_add_many(GST_BIN (pipeline), webRtcPeerPtr->webrtcElement, NULL);
 
         g_assert_nonnull (webRtcPeerPtr->webrtcElement);
         /* This is the gstwebrtc entry point where we create the offer and so on. It
@@ -710,10 +760,152 @@ void VideoPipelineHandler::create_receivers_for_video() {
         /* Incoming streams will be exposed via this signal */
         //g_signal_connect (webrtcbin, "pad-added", G_CALLBACK(on_incoming_stream), pipeline);
 
-        ret = gst_element_sync_state_with_parent(queue);
-        g_assert_true (ret);
-        ret = gst_element_sync_state_with_parent(rtpvp8pay);
-        g_assert_true (ret);
+        if (video_valid) {
+            GstElement *videotee, *videoqueue, *rtpvp8pay;
+            GstCaps *caps;
+
+            //Create queue
+            tmp = g_strdup_printf("queue_video_recv-%s", webRtcPeerPtr->peerId.c_str());
+            videoqueue = gst_element_factory_make("queue", tmp);
+            g_object_set(videoqueue, "leaky", 2, NULL);
+            g_free(tmp);
+
+            //Create rtph264pay with caps
+            tmp = g_strdup_printf("rtphvp8pay_recv-%s", webRtcPeerPtr->peerId.c_str());
+            rtpvp8pay = gst_element_factory_make("rtpvp8pay", tmp);
+            //g_object_set(rtpvp8pay, "config-interval", -1, NULL);
+            g_object_set(rtpvp8pay, "pt", 96, NULL);
+            g_free(tmp);
+
+            srcpad = gst_element_get_static_pad(rtpvp8pay, "src");
+            caps = gst_caps_from_string(RTP_CAPS_VP8);
+            gst_pad_set_caps(srcpad, caps);
+            gst_caps_unref(caps);
+            gst_object_unref(srcpad);
+
+            //Add elements to pipeline
+            gst_bin_add_many(GST_BIN (pipeline), videoqueue, rtpvp8pay, NULL);
+
+            //Link queue -> rtpvp8pay
+            srcpad = gst_element_get_static_pad(videoqueue, "src");
+            g_assert_nonnull (srcpad);
+            sinkpad = gst_element_get_static_pad(rtpvp8pay, "sink");
+            g_assert_nonnull (sinkpad);
+            ret = gst_pad_link(srcpad, sinkpad);
+            g_assert_cmpint (ret, ==, GST_PAD_LINK_OK);
+            gst_object_unref(srcpad);
+            gst_object_unref(sinkpad);
+
+            //Link rtpvp8pay -> webrtcbin
+            srcpad = gst_element_get_static_pad(rtpvp8pay, "src");
+            g_assert_nonnull (srcpad);
+            sinkpad = gst_element_get_request_pad(webRtcPeerPtr->webrtcElement, "sink_%u");
+            g_assert_nonnull (sinkpad);
+            ret = gst_pad_link(srcpad, sinkpad);
+            g_assert_cmpint (ret, ==, GST_PAD_LINK_OK);
+            gst_object_unref(srcpad);
+            gst_object_unref(sinkpad);
+
+            //Link videotee -> queue
+            tmp = g_strdup_printf("videotee-%s", senderPeerId.c_str());
+            videotee = gst_bin_get_by_name(GST_BIN (pipeline), tmp);
+            g_free(tmp);
+            g_assert_nonnull (videotee);
+            srcpad = gst_element_get_request_pad(videotee, "src_%u");
+            g_assert_nonnull (srcpad);
+            gst_object_unref(videotee);
+            sinkpad = gst_element_get_static_pad(videoqueue, "sink");
+            g_assert_nonnull (sinkpad);
+            ret = gst_pad_link(srcpad, sinkpad);
+            g_assert_cmpint (ret, ==, GST_PAD_LINK_OK);
+            gst_object_unref(srcpad);
+            gst_object_unref(sinkpad);
+
+            ret = gst_element_sync_state_with_parent(videoqueue);
+            g_assert_true (ret);
+            ret = gst_element_sync_state_with_parent(rtpvp8pay);
+            g_assert_true (ret);
+        }
+
+        if (audio_valid) {
+            GstElement *audiotee, *audioqueue, *rtpopuspay;
+            GstCaps *caps;
+
+            //Create queue
+            tmp = g_strdup_printf("queue_audio_recv-%s", webRtcPeerPtr->peerId.c_str());
+            audioqueue = gst_element_factory_make("queue", tmp);
+            g_object_set(audioqueue, "leaky", 2, NULL);
+            g_free(tmp);
+
+            //Create rtpopuspay with caps
+            tmp = g_strdup_printf("rtpopuspay_recv-%s", webRtcPeerPtr->peerId.c_str());
+            rtpopuspay = gst_element_factory_make("rtpopuspay", tmp);
+            g_free(tmp);
+
+            srcpad = gst_element_get_static_pad(rtpopuspay, "src");
+            caps = gst_caps_from_string(RTP_CAPS_OPUS);
+            gst_pad_set_caps(srcpad, caps);
+            gst_caps_unref(caps);
+            gst_object_unref(srcpad);
+
+            //Add elements to pipeline
+            gst_bin_add_many(GST_BIN (pipeline), audioqueue, rtpopuspay, NULL);
+
+            //Link queue -> rtpopuspay
+            srcpad = gst_element_get_static_pad(audioqueue, "src");
+            g_assert_nonnull (srcpad);
+            sinkpad = gst_element_get_static_pad(rtpopuspay, "sink");
+            g_assert_nonnull (sinkpad);
+            ret = gst_pad_link(srcpad, sinkpad);
+            g_assert_cmpint (ret, ==, GST_PAD_LINK_OK);
+            gst_object_unref(srcpad);
+            gst_object_unref(sinkpad);
+
+            //Link rtpopuspay -> webrtcbin
+            srcpad = gst_element_get_static_pad(rtpopuspay, "src");
+            g_assert_nonnull (srcpad);
+            sinkpad = gst_element_get_request_pad(webRtcPeerPtr->webrtcElement, "sink_%u");
+            g_assert_nonnull (sinkpad);
+            ret = gst_pad_link(srcpad, sinkpad);
+            g_assert_cmpint (ret, ==, GST_PAD_LINK_OK);
+            gst_object_unref(srcpad);
+            gst_object_unref(sinkpad);
+
+            //Link audiotee -> queue
+            tmp = g_strdup_printf("audiotee-%s", senderPeerId.c_str());
+            audiotee = gst_bin_get_by_name(GST_BIN (pipeline), tmp);
+            g_free(tmp);
+            g_assert_nonnull (audiotee);
+            srcpad = gst_element_get_request_pad(audiotee, "src_%u");
+            g_assert_nonnull (srcpad);
+            gst_object_unref(audiotee);
+            sinkpad = gst_element_get_static_pad(audioqueue, "sink");
+            g_assert_nonnull (sinkpad);
+            ret = gst_pad_link(srcpad, sinkpad);
+            g_assert_cmpint (ret, ==, GST_PAD_LINK_OK);
+            gst_object_unref(srcpad);
+            gst_object_unref(sinkpad);
+
+            ret = gst_element_sync_state_with_parent(audioqueue);
+            g_assert_true (ret);
+            ret = gst_element_sync_state_with_parent(rtpopuspay);
+            g_assert_true (ret);
+        }
+
+        //Change webrtcbin to send only
+        g_signal_emit_by_name(webRtcPeerPtr->webrtcElement, "get-transceivers", &transceivers);
+        if (transceivers) {
+            GST_INFO("Changing webrtcbin for peer %s to sendonly. Number of transceivers(%d) ",
+                     webRtcPeerPtr->peerId.c_str(),
+                     transceivers->len);
+            g_assert_true(transceivers->len > 0);
+            for (int transRecvIndex = 0; transRecvIndex < transceivers->len; transRecvIndex++) {
+                trans = g_array_index (transceivers, GstWebRTCRTPTransceiver *, transRecvIndex);
+                trans->direction = GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_SENDONLY;
+            }
+            g_array_unref(transceivers);
+        }
+
         ret = gst_element_sync_state_with_parent(webRtcPeerPtr->webrtcElement);
         g_assert_true (ret);
 

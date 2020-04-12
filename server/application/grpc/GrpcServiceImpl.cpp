@@ -112,6 +112,8 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
                                         receivers.push_back(receiver);
                                     }
                                 }
+                                //Apply watchdog check to stop if not received media within timeout
+                                videoPipelineHandlerPtr->apply_watchdog = APPLY_WATCHDOG_TIMEOUT;
                                 videoPipelineHandlerPtr->create_video_pipeline_sender_peer(request->channelid(),
                                                                                            request->peerid(),
                                                                                            receivers,

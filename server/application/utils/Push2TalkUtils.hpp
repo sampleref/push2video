@@ -15,6 +15,8 @@
 const int GRPC_SERVER_PORT = 17101;
 const int GRPC_SIGNALLING_PORT = 17102;
 
+const bool APPLY_WATCHDOG_TIMEOUT = false;
+
 class AudioPipelineHandler;
 typedef std::shared_ptr<AudioPipelineHandler> AudioPipelineHandlerPtr;
 
