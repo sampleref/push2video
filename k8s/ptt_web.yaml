@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ptt-web
+spec:
+  selector:
+    app: ptt-web
+  ports:
+  - protocol: "TCP"
+    port: 8993
+    targetPort: 8993
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ptt-web
+spec:
+  selector:
+    matchLabels:
+      app: ptt-web
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ptt-web
+    spec:
+      containers:
+      - env:
+        image: "push2talk_web:1.0"
+        imagePullPolicy: IfNotPresent
+        name: ptt-web
+        ports:
+        - containerPort: 8993
+          hostPort: 8993
+          protocol: TCP  

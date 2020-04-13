@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ptt-server
+spec:
+  selector:
+    app: ptt-server
+  ports:
+  - protocol: "TCP"
+    port: 17101
+    targetPort: 17101
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ptt-server
+spec:
+  selector:
+    matchLabels:
+      app: ptt-server
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ptt-server
+    spec:
+      containers:
+      - env:
+        - name: GST_DEBUG
+          value: 3,push2talk_gst:4
+        image: "push2talk_server:1.0"
+        imagePullPolicy: IfNotPresent
+        name: ptt-server
+        ports:
+        - containerPort: 17101
+          hostPort: 17101
+          protocol: TCP
+      dnsPolicy: ClusterFirstWithHostNet
+      hostNetwork: true
