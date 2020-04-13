@@ -373,8 +373,20 @@ void on_answer_created_video(GstPromise *promise, WebRtcPeer *webRtcVideoPeer) {
     gst_webrtc_session_description_free(answer);
 }
 
+gboolean send_key_frame_timer_callback(gpointer user_data) {
+    GString *val = (GString *) user_data;
+    VideoPipelineHandlerPtr videoPipelineHandlerPtr = push2talkUtils::fetch_video_pipelinehandler_by_key(val->str);
+    if (videoPipelineHandlerPtr) {
+        videoPipelineHandlerPtr->send_key_frame_request_to_sender();
+        return TRUE;
+    }
+    GST_INFO("Video pipeline handler invalid for channel %s. Might be stopped ", val->str);
+    g_string_free(val, TRUE);
+    return FALSE;
+}
+
 void VideoPipelineHandler::send_key_frame_request_to_sender() {
-    GST_INFO("Sending key frame request for sender peer %s ", senderPeerId.c_str());
+    GST_DEBUG("Sending key frame request for sender peer %s ", senderPeerId.c_str());
     if (pipeline) {
         GstPad *videosrcpad;
         videosrcpad = gst_element_get_static_pad(senderPeer->webrtcElement, senderPeer->videoSrcPadName.c_str());
@@ -477,9 +489,6 @@ void VideoPipelineHandler::apply_webrtc_video_receiver_sdp(std::string peerId, s
             gst_promise_unref(promise);
         }
         GST_INFO("apply_webrtc_audio_receiver_sdp completed for receiver peer %s ", peerId.c_str());
-
-        //Force a keyframe request from sender for this receiver to start video playback at earliest
-        send_key_frame_request_to_sender();
     } else {
         GST_ERROR("No receiver peer %s, cannot apply offer!", peerId.c_str());
     }
@@ -935,6 +944,11 @@ void VideoPipelineHandler::create_receivers_for_video() {
         g_assert_true (ret);
 
         GST_INFO("Created webrtc bin for receiver peer %s", webRtcPeerPtr->peerId.c_str());
+    }
+
+    //Start timer to request sender keyframe every 1 sec
+    if (video_valid) {
+        g_timeout_add_seconds(1, send_key_frame_timer_callback, g_string_new(channelId.c_str()));
     }
 }
 
