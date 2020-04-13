@@ -52,6 +52,8 @@ function pageReady() {
     } else {
         alert('Your browser does not support getUserMedia API');
     }
+	//Start stats monitor
+	statsInterval = window.setInterval(startConnectionStats, 1000);
 }
 
 
@@ -81,6 +83,56 @@ function toggleStopVideo(enable) {
 
 function setStatusText(colorVal, textVal) {
 	document.getElementById("sendrecvstatus").innerHTML  = '<b><span style="color: ' + colorVal +'";>' + textVal + '</span></b>';
+}
+
+function clearConnectionStats() {
+	document.getElementById("audio_recv_stats").innerHTML  = '';
+	document.getElementById("video_recv_stats").innerHTML  = '';
+	document.getElementById("audio_send_stats").innerHTML  = '';
+	document.getElementById("video_send_stats").innerHTML  = '';
+}
+
+function startConnectionStats() {
+  if(peerConnectionVideoSend != null){
+		peerConnectionVideoSend.getStats(null).then(stats => {
+			var statsOutputVideo = "";
+			var statsOutputAudio = "";
+			stats.forEach(report => {
+				if (report.type === "outbound-rtp" && report.kind === "video") {
+					Object.keys(report).forEach(statName => {
+						statsOutputVideo += `<strong>${statName}:</strong> ${report[statName]}<br>\n`;
+					});
+				}
+				if (report.type === "outbound-rtp" && report.kind === "audio") {
+					Object.keys(report).forEach(statName => {
+						statsOutputAudio += `<strong>${statName}:</strong> ${report[statName]}<br>\n`;
+					});
+				}
+			});
+			document.getElementById("audio_send_stats").innerHTML  = statsOutputAudio;
+			document.getElementById("video_send_stats").innerHTML  = statsOutputVideo;
+	   });
+  }
+  if(peerConnectionVideoRecv != null){
+		peerConnectionVideoRecv.getStats(null).then(stats => {
+			var statsOutputVideo = "";
+			var statsOutputAudio = "";
+			stats.forEach(report => {
+				if (report.type === "inbound-rtp" && report.kind === "video") {
+					Object.keys(report).forEach(statName => {
+						statsOutputVideo += `<strong>${statName}:</strong> ${report[statName]}<br>\n`;
+					});
+				}
+				if (report.type === "inbound-rtp" && report.kind === "audio") {
+					Object.keys(report).forEach(statName => {
+						statsOutputAudio += `<strong>${statName}:</strong> ${report[statName]}<br>\n`;
+					});
+				}
+			});
+			document.getElementById("audio_recv_stats").innerHTML  = statsOutputAudio;
+			document.getElementById("video_recv_stats").innerHTML  = statsOutputVideo;
+	   });
+  }
 }
 
 //Once on start create peerConnection with callbacks and then send ADD_PEER
@@ -115,14 +167,19 @@ function startVideo(start) {
         alert('Peer connection not null ! Stop and try again')
         return;
     }
+	clearConnectionStats();
     // Create peerConnection and attach onicecandidate, ontrack callbacks
-    peerConnectionVideoSend = new RTCPeerConnection(peerConnectionConfig);
-	peerConnectionVideoSend.addEventListener("iceconnectionstatechange", ev => {
-	  console.log('Send video ice connection state ' + peerConnectionVideoSend.iceConnectionState);
-	  if('connected' == peerConnectionVideoSend.iceConnectionState) {
-		setStatusText('green', 'Sending... ==>>==>>==>>');
-	  }
-	}, false);
+	try {
+		peerConnectionVideoSend = new RTCPeerConnection(peerConnectionConfig);
+		peerConnectionVideoSend.addEventListener("iceconnectionstatechange", ev => {
+		  console.log('Send video ice connection state ' + peerConnectionVideoSend.iceConnectionState);
+		  if('connected' == peerConnectionVideoSend.iceConnectionState) {
+			setStatusText('green', 'Sending... ==>>==>>==>>');
+		  }
+		}, false);
+	} catch(err) {
+		console.error("Error creating peerConnectionVideoSend: " + err);
+	}
 	videosrc.srcObject = streamVar;
 	streamVar.getTracks().forEach(track => {
 		if(track.kind == 'audio'){
@@ -151,6 +208,7 @@ function stopVideo() {
     }
     peerConnectionVideoSend.close();
 	setStatusText('green', '');
+	clearConnectionStats();
     peerConnectionVideoSend = null;
     msg = {
         peerId: peerIdVar,
@@ -217,6 +275,7 @@ function quitAudio(){
 }
 
 function startRecvVideo(){
+	clearConnectionStats();
     peerConnectionVideoRecv = new RTCPeerConnection(peerConnectionConfig);
 	peerConnectionVideoRecv.addEventListener("iceconnectionstatechange", ev => {
 	  console.log('Receive video ice connection state ' + peerConnectionVideoRecv.iceConnectionState);
@@ -226,6 +285,7 @@ function startRecvVideo(){
 	  if('disconnected' == peerConnectionVideoRecv.iceConnectionState) {
 		console.log('Closing Video Reception!');
 		setStatusText('green', '');
+		clearConnectionStats();
 		peerConnectionVideoRecv.close();
 		peerConnectionVideoRecv = null;
 	  }

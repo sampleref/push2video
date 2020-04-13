@@ -32,6 +32,12 @@
 			clear:both;
 		}
 
+		#stats_div {
+			padding-top: 10px;
+			float: left;
+			clear:both;
+		}
+
 		.buttonStart {
 			border-radius: 12px;
 			display: inline-block;
@@ -80,6 +86,24 @@
                 <td><label id="peerId"></label></td>
                 <td><input type="button" class="buttonStart" style="height:50px;width=50px" id="joinAudio" onclick="joinAudio()" value="Join Audio"></input></td>
                 <td><input type="button" class="buttonStop" style="height:50px;width=50px" id="quitAudio" onclick="quitAudio()" value="Leave Audio"></input></td>
+            </tr>
+        </table>
+    </div>
+
+    <div id="stats_div">
+        <b>Network Stats:</b> <br/>
+        <table style="width:100%; border: thin solid black;" cellpadding="30">
+            <tr>
+                <th style="border: thin solid black;">Audio Sending</th>
+                <th style="border: thin solid black;">Audio Receiving</th>
+                <th style="border: thin solid black;">Video Sending</th>
+                <th style="border: thin solid black;">Video Receiving</th>
+            </tr>
+            <tr>
+                <td style="border: thin solid black;"><p id="audio_send_stats"></p></td>
+                <td style="border: thin solid black;"><p id="audio_recv_stats"></p></td>
+                <td style="border: thin solid black;"><p id="video_send_stats"></p></td>
+                <td style="border: thin solid black;"><p id="video_recv_stats"></p></td>
             </tr>
         </table>
     </div>
