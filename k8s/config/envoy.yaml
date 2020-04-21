@@ -1,0 +1,106 @@
+---
+admin:
+  access_log_path: "/tmp/admin_access.log"
+  address: 
+    socket_address: 
+      address: "0.0.0.0"
+      port_value: 9000
+
+static_resources:
+
+  clusters:
+  - name: "service_web"
+    type: STRICT_DNS
+    connect_timeout: 0.25s
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: service_web
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: ptt-web
+                port_value: 8992
+                protocol: TCP
+  - name: "service_signalling"
+    type: STRICT_DNS
+    connect_timeout: 0.25s
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: service_signalling
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: ptt-signalling
+                port_value: 9443
+                protocol: TCP 
+
+  listeners:
+  - name: "http_listener"
+    address: 
+      socket_address: 
+        address: "0.0.0.0"
+        port_value: 8995
+        protocol: TCP
+    filter_chains:
+    - filters:
+      - config:
+          access_log:
+          - config:
+              format: 'ACCESS [%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%
+                  %PROTOCOL%" %RESPONSE_CODE% %RESPONSE_FLAGS% %BYTES_RECEIVED% %BYTES_SENT%
+                  %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% "%REQ(X-FORWARDED-FOR)%"
+                  "%REQ(USER-AGENT)%" "%REQ(X-REQUEST-ID)%" "%REQ(:AUTHORITY)%" "%UPSTREAM_HOST%"'
+              path: "/dev/fd/1"
+            name: envoy.file_access_log
+          http_filters:
+          - name: envoy.cors
+          - name: envoy.router
+          route_config: 
+            name: "local_route"
+            virtual_hosts: 
+            - domains: 
+              - "*"
+              name: ptt
+              routes: 
+              - match: 
+                  prefix: "/signalling"  
+                route:
+                  prefix_rewrite: "/signalling"
+                  priority: 
+                  timeout: 0s
+                  weighted_clusters:
+                    clusters:
+                    - name: service_signalling
+                      weight: 100
+              - match: 
+                  prefix: "/"
+                route:
+                  priority: 
+                  timeout: 0s
+                  weighted_clusters:
+                    clusters:
+                    - name: service_web
+                      weight: 100
+          stat_prefix: ingress_http
+          codec_type: auto
+          upgrade_configs:
+          - upgrade_type: websocket
+          use_remote_address: true
+        name: envoy.http_connection_manager
+      tls_context:
+        common_tls_context:
+          alpn_protocols:
+          - h2
+          - http/1.1
+          tls_certificates:
+          - certificate_chain:
+              filename: "/certs/server.crt"
+            private_key:
+              filename: "/certs/server.key"
+      use_proxy_proto: false

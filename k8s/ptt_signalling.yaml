@@ -5,11 +5,12 @@ metadata:
 spec:
   selector:
     app: ptt-signalling
+  type: ClusterIP
   ports:
   - protocol: "TCP"
-    port: 17102
+    port: 18102
     name: grpc
-    targetPort: 17102
+    targetPort: 18102
   - protocol: "TCP"
     port: 9443
     name: signalling
@@ -39,9 +40,10 @@ spec:
         imagePullPolicy: IfNotPresent
         name: ptt-signalling
         ports:
-        - containerPort: 17102
+        - containerPort: 18102
           name: grpc
           protocol: TCP
         - containerPort: 9443
+          hostPort: 9443
           name: signalling
           protocol: TCP  

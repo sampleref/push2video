@@ -5,10 +5,11 @@ metadata:
 spec:
   selector:
     app: ptt-server
+  type: ClusterIP
   ports:
   - protocol: "TCP"
-    port: 17101
-    targetPort: 17101
+    port: 18101
+    targetPort: 18101
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -32,8 +33,8 @@ spec:
         imagePullPolicy: IfNotPresent
         name: ptt-server
         ports:
-        - containerPort: 17101
-          hostPort: 17101
+        - containerPort: 18101
+          hostPort: 18101
           protocol: TCP
       dnsPolicy: ClusterFirstWithHostNet
       hostNetwork: true

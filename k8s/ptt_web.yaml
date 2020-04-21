@@ -5,10 +5,16 @@ metadata:
 spec:
   selector:
     app: ptt-web
+  type: ClusterIP
   ports:
   - protocol: "TCP"
     port: 8993
+    name: https
     targetPort: 8993
+  - protocol: "TCP"
+    port: 8992
+    name: http
+    targetPort: 8992  
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -31,5 +37,6 @@ spec:
         name: ptt-web
         ports:
         - containerPort: 8993
-          hostPort: 8993
-          protocol: TCP  
+          protocol: TCP
+        - containerPort: 8992
+          protocol: TCP          

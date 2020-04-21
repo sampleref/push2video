@@ -17,7 +17,7 @@ public class Application {
     public static void main(String[] args) {
         try {
             websocketServer = new WebSocketServer();
-            websocketServer.initialize(true);
+            websocketServer.initialize(false);
             websocketServer.start();
             push2VideoClient = new Push2VideoClient();
             GrpcWebsocketBridge.initialize(push2VideoClient);

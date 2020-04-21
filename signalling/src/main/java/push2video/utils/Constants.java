@@ -2,8 +2,8 @@ package push2video.utils;
 
 public class Constants {
 
-    public static final int GRPC_SERVER_PORT = 17101;
-    public static final int GRPC_CLIENT_PORT = 17102;
+    public static final int GRPC_SERVER_PORT = 18101;
+    public static final int GRPC_CLIENT_PORT = 18102;
 
     public static final Long IDLE_WEBSOCKET_TIMEOUT = 30 * 60000L;
 

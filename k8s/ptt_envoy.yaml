@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ptt-envoy
+spec:
+  type: ClusterIP
+  selector:
+    app: ptt-envoy
+  ports:
+  - name: tls
+    port: 8995
+    protocol: TCP
+    targetPort: 8995
+  externalIPs:
+    - <EXTERNAL_IP>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ptt-envoy
+spec:
+  selector:
+    matchLabels:
+      app: ptt-envoy
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ptt-envoy
+    spec:
+      containers:
+        - image: 'envoyproxy/envoy-alpine:36f39c746eb7d03b762099b206403935b11972d8'
+          imagePullPolicy: IfNotPresent
+          name: ptt-envoy
+          ports:
+            - name: tls
+              containerPort: 8995
+          volumeMounts:
+          # Envoy config mount
+          - mountPath: /etc/envoy/envoy.yaml
+            name: envoy-config
+          # Envoy certs mount
+          - mountPath: /certs
+            name: envoy-certs
+      volumes:
+      - name: envoy-config
+        hostPath:
+          path: <ENVOY_CONFIG_FILE>
+      - name: envoy-certs
+        hostPath:
+          path: <ENVOY_CERT_DIR>
+          type: Directory

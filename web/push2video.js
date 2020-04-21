@@ -32,12 +32,12 @@ function getUserMediaError(error) {
 function pageReady() {
     videosrc = document.getElementById("videoId");
 	audioRecv = document.getElementById("audioRecv");
-    serverConnection = new WebSocket('wss://' + window.location.hostname + ':9443/signalling');
+    serverConnection = new WebSocket('wss://' + window.location.hostname + ':8995/signalling');
 	document.getElementById("ws_msg").innerHTML  = "Please open url: <a href='https://"
 													+ window.location.hostname
-													+ ":9443/signalling' target='_blank'>https://"
+													+ ":8995/signalling' target='_blank'>https://"
 													+ window.location.hostname
-													+ ":9443/signalling</a> in new tab and "
+													+ ":8995/signalling</a> in new tab and "
 													+ "validate certificate if <b>'Peer Id'</b> below is not assigned and Refresh(F5)";
     serverConnection.onmessage = gotMessageFromServer;
     serverConnection.onopen = ServerOpen;
