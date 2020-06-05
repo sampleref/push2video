@@ -8,6 +8,8 @@ import push2video.utils.Constants;
 import push2video.utils.Push2VideoUtils;
 import push2video.websocket.WebSocketServer;
 
+import java.util.ArrayList;
+
 public class Application {
     private static final org.apache.logging.log4j.Logger logger = LogManager.getLogger();
     private static Push2VideoService service;
@@ -32,6 +34,8 @@ public class Application {
             });
             push2VideoClient.updateSignallingStart(Push2VideoUtils.getEnv(Constants.CLIENT_HOST_KEY, Constants.CLIENT_HOST_DEF), Constants.GRPC_CLIENT_PORT);
             push2VideoClient.createAudioChannel(Constants.DEFUALT_AUDIO_CHANNEL);
+            //GrpcWebsocketBridge.peerChannelMap.put(Constants.DEFUALT_AUDIO_CHANNEL, new ArrayList<>());
+            push2VideoClient.getGrpcClient().createUeGroup(Constants.DEFUALT_AV_GROUP);
             service.waitUntilCompletion();
         } catch (Exception e) {
             logger.error("While starting service, error message {} ", e.getMessage());

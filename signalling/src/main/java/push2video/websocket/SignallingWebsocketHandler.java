@@ -42,6 +42,9 @@ public class SignallingWebsocketHandler {
             case CHANNELSTATUSMESSAGE:
                 sendVideoLockStatusToPeer(session);
                 break;
+            case GROUPUEMESSAGE:
+                GrpcWebsocketBridge.groupUeMessageToServer(message.getGroupUeMessage());
+                break;
             default:
                 if (GrpcWebsocketBridge.updateLockAndVerify(message)) {
                     GrpcWebsocketBridge.sendToServer(GrpcWebsocketBridge.sessionPeerMap.get(session.getId()), message);

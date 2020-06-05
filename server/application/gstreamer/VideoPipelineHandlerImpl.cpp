@@ -9,6 +9,7 @@
 #include <future> // std::async, std::future
 #include <chrono>
 #include <gst/webrtc/webrtc.h>
+#include <gst/rtp/rtp.h>
 
 #include "VideoPipelineHandler.hpp"
 #include "GstMediaUtils.hpp"
@@ -19,7 +20,7 @@
 GST_DEBUG_CATEGORY_EXTERN (push2talk_gst);
 #define GST_CAT_DEFAULT push2talk_gst
 
-#define STUN_SERVER " stun-server=stun://stun.l.google.com:19302 "
+#define STUN_SERVER " stun-server=stun://stun.l.google.com:19302"
 #define RTP_CAPS_OPUS "application/x-rtp,media=audio,encoding-name=OPUS,payload=111"
 #define RTP_CAPS_VP8 "application/x-rtp,media=video,encoding-name=VP8,payload=96"
 
@@ -733,6 +734,92 @@ void send_sdp_offer_video(GstWebRTCSessionDescription *offer, WebRtcPeer *webRtc
     g_free(text);
 }
 
+gboolean receiver_on_sending_rtcp_cb(GstElement *bin, guint sessid, GstBuffer *buffer, gpointer udata) {
+    GST_DEBUG("Triggered on sending receiver RTCP");
+}
+
+gboolean receiver_on_receiving_rtcp_cb(GstElement *bin, guint sessid, GstBuffer *buffer, gpointer udata) {
+    GST_INFO("Triggered on receiving receiver RTCP");
+    gboolean result = gst_rtcp_buffer_validate(buffer);
+    if (result) {
+        GST_INFO("on_receiving_rtcp_cb: RTCP Buffer valid: %d ", result);
+    }
+}
+
+GstPadProbeReturn rtcp_sink_buffer_pad_probe_cb(GstPad *pad, GstPadProbeInfo *info, gpointer user_data) {
+    GstBuffer *gstBuffer;
+    gstBuffer = gst_pad_probe_info_get_buffer(info);
+    gboolean result = gst_rtcp_buffer_validate(gstBuffer);
+    if (result) {
+        GST_DEBUG("Pad Probe: RTCP Buffer valid: %d ", result);
+        GstRTCPBuffer rtcpBuffer = {NULL,};
+        result = gst_rtcp_buffer_map(gstBuffer, GST_MAP_READ, &rtcpBuffer);
+        if (result) {
+            GST_DEBUG("RTCP Buffer valid: %d ", result);
+            GstRTCPPacket packet;
+            gboolean morePackets;
+            morePackets = gst_rtcp_buffer_get_first_packet(&rtcpBuffer, &packet);
+            while (morePackets) {
+                GstRTCPType type;
+                type = gst_rtcp_packet_get_type(&packet);
+                switch (type) {
+                    case GST_RTCP_TYPE_PSFB:
+                    case GST_RTCP_TYPE_RTPFB:
+                        GstRTCPFBType gstRtcpfbType;
+                        gstRtcpfbType = gst_rtcp_packet_fb_get_type(&packet);
+                        switch (gstRtcpfbType) {
+                            case GST_RTCP_PSFB_TYPE_FIR:
+                            case GST_RTCP_PSFB_TYPE_PLI:
+                                GST_INFO("+++++++++++++++++++++++++++++++++++++++++PLI/FIR Type found");
+                                break;
+                            default:
+                                GST_DEBUG ("Default /Unhandled FB Type: %d", gstRtcpfbType);
+                                break;
+                        }
+                        break;
+                    default:
+                        GST_DEBUG ("Default /Unhandled RTCP Type: %d", type);
+                }
+                morePackets = gst_rtcp_packet_move_to_next(&packet);
+            }
+            gst_rtcp_buffer_unmap(&rtcpBuffer);
+        }
+    }
+    return GST_PAD_PROBE_OK;
+}
+
+void on_new_ssrc_callback_receiver(GstElement *rtpbin, guint session, guint ssrc, gpointer udata) {
+    GST_INFO("New SSRC created for session %d as %d ", session, ssrc);
+    GstPad *rtcp_sink_pad;
+    gchar *padName;
+    padName = g_strdup_printf("recv_rtcp_sink_%u", session);
+    rtcp_sink_pad = gst_element_get_static_pad(rtpbin, padName);
+    if (rtcp_sink_pad) {
+        GST_INFO("Pad Already Exists with name %s ", padName);
+    } else {
+        rtcp_sink_pad = gst_element_get_request_pad(rtpbin, padName);
+    }
+    g_free(padName);
+    if (rtcp_sink_pad) {
+        gst_pad_add_probe(rtcp_sink_pad, GST_PAD_PROBE_TYPE_BUFFER, (GstPadProbeCallback) rtcp_sink_buffer_pad_probe_cb,
+                          NULL, NULL);
+        gst_object_unref(rtcp_sink_pad);
+    }
+}
+
+void new_storage_callback_rtp_receiver(GstElement *rtpbin, GstElement storage, guint session, gpointer udata) {
+    GST_INFO("New RTPBin Storage for session id %d ", session);
+    GObject *sessionRef;
+    g_signal_emit_by_name(rtpbin, "get-internal-session", session, &sessionRef);
+    if (sessionRef) {
+        GST_INFO("Internal Session found for RTPBin recv");
+        g_signal_connect(sessionRef, "on-receiving-rtcp", G_CALLBACK(receiver_on_receiving_rtcp_cb),
+                         udata);
+        g_signal_connect(sessionRef, "on-sending-rtcp", G_CALLBACK(receiver_on_sending_rtcp_cb),
+                         udata);
+    }
+}
+
 /* Offer created by our audio pipeline, to be sent to the peer */
 void on_offer_created_video(GstPromise *promise, gpointer user_data) {
     GstWebRTCSessionDescription *offer = NULL;
@@ -785,14 +872,22 @@ void VideoPipelineHandler::create_receivers_for_video() {
          * will be called when the pipeline goes to PLAYING. */
         g_signal_connect (webRtcPeerPtr->webrtcElement, "on-negotiation-needed",
                           G_CALLBACK(on_negotiation_needed_video), webRtcPeerPtr.get());
-        /* We need to transmit this ICE candidate to the browser via the websockets
-         * signalling server. Incoming ice candidates from the browser need to be
-         * added by us too, see on_server_message() */
+        /* Need to transmit this ICE candidate to remote peer via
+         * signalling server. Incoming ice candidates from the peer need to be
+         * added */
         g_signal_connect (webRtcPeerPtr->webrtcElement, "on-ice-candidate",
                           G_CALLBACK(send_ice_candidate_message_video), webRtcPeerPtr.get());
 
         /* Incoming streams will be exposed via this signal */
         //g_signal_connect (webrtcbin, "pad-added", G_CALLBACK(on_incoming_stream), pipeline);
+        GstElement *rtpbin;
+        rtpbin = gst_bin_get_by_name(GST_BIN(webRtcPeerPtr->webrtcElement), "rtpbin");
+        if (rtpbin) {
+            //g_signal_connect (rtpbin, "on-new-ssrc", G_CALLBACK(on_new_ssrc_callback_receiver), webRtcPeerPtr.get());
+            g_signal_connect (rtpbin, "new-storage", G_CALLBACK(new_storage_callback_rtp_receiver),
+                              webRtcPeerPtr.get());
+            g_object_unref(rtpbin);
+        }
 
         if (video_valid) {
             GstElement *videotee, *videoqueue, *rtpvp8pay;

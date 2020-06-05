@@ -38,6 +38,15 @@ public:
 
     void sendPing(std::string message);
 
+    //Individual API's
+    void sendSdpOfferRequest(SdpOfferRequest sdpOfferRequest);
+
+    void sendSdpAnswerRequest(SdpAnswerRequest sdpAnswerRequest);
+
+    void sendIceMessageRequest(IceMessageRequest iceMessageRequest);
+
+    MgwFloorControlResponse sendMgwFloorControlRequest(MgwFloorControlRequest mgwFloorControlRequest);
+
 };
 
 typedef std::shared_ptr<PushToTalkServiceClient> PushToTalkServiceClientPtr;

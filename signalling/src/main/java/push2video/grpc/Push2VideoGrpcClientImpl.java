@@ -66,4 +66,39 @@ public class Push2VideoGrpcClientImpl {
         return true;
     }
 
+    public boolean createUeGroup(String groupId) {
+        CreateGroupResponse createGroupResponse = pushToTalkBlockingStub.createGroup(CreateGroupRequest.newBuilder().setGroupId(groupId).build());
+        return createGroupResponse.getStatus().equals(CreateGroupResponse.Status.SUCCESS);
+    }
+
+    public boolean deleteGroup(String groupId) {
+        DeleteGroupResponse deleteGroupResponse = pushToTalkBlockingStub.deleteGroup(DeleteGroupRequest.newBuilder().setGroupId(groupId).build());
+        return deleteGroupResponse.getStatus().equals(DeleteGroupResponse.Status.SUCCESS);
+    }
+
+    public boolean sdpOfferFromUe(SdpOfferRequest sdpOfferRequest) {
+        SdpOfferResponse sdpOfferResponse = pushToTalkBlockingStub.sdpOffer(sdpOfferRequest);
+        return sdpOfferResponse.getStatus().equals(SdpOfferResponse.Status.SUCCESS);
+    }
+
+    public boolean sdpAnswerFromUe(SdpAnswerRequest sdpAnswerRequest) {
+        SdpAnswerResponse sdpAnswerResponse = pushToTalkBlockingStub.sdpAnswer(sdpAnswerRequest);
+        return true;
+    }
+
+    public boolean iceMessageFromUe(IceMessageRequest iceMessageRequest) {
+        IceMessageResponse iceMessageResponse = pushToTalkBlockingStub.iceMessage(iceMessageRequest);
+        return true;
+    }
+
+    public UeFloorControlResponse ueFloorControl(UeFloorControlRequest ueFloorControlRequest) {
+        UeFloorControlResponse ueFloorControlResponse = pushToTalkBlockingStub.ueFloorControl(ueFloorControlRequest);
+        return ueFloorControlResponse;
+    }
+
+    public boolean ueReset(UeResetRequest ueResetRequest) {
+        UeResetResponse ueResetResponse = pushToTalkBlockingStub.ueReset(ueResetRequest);
+        return ueResetRequest.getUeId().equalsIgnoreCase(ueResetResponse.getUeId());
+    }
+
 }

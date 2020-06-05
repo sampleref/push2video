@@ -23,14 +23,19 @@ typedef std::shared_ptr<AudioPipelineHandler> AudioPipelineHandlerPtr;
 class VideoPipelineHandler;
 typedef std::shared_ptr<VideoPipelineHandler> VideoPipelineHandlerPtr;
 
+class GroupSendRecvHandler;
+typedef std::shared_ptr<GroupSendRecvHandler> GroupSendRecvHandlerPtr;
+
 class PushToTalkServiceClient;
 typedef std::shared_ptr<PushToTalkServiceClient> PushToTalkServiceClientPtr;
 
 namespace push2talkUtils {
     extern std::map<std::string, AudioPipelineHandlerPtr> audioPipelineHandlers;
     extern std::map<std::string, VideoPipelineHandlerPtr> videoPipelineHandlers;
+    extern std::map<std::string, GroupSendRecvHandlerPtr> groupSendRecvHandlers;
     extern PushToTalkServiceClientPtr pushToTalkServiceClientPtr;
     extern std::mutex peers_mutex;
+    extern std::mutex ue_sdp_mutex;
 
     int generate_random_int(void);
 
@@ -47,6 +52,12 @@ namespace push2talkUtils {
     void remove_video_pipeline_handler(std::string channelId);
 
     void remove_audio_pipeline_handler(std::string channelId);
+
+    void add_groupsendrecvhandler_to_map(std::string groupId, GroupSendRecvHandlerPtr groupSendRecvHandlerPtr);
+
+    GroupSendRecvHandlerPtr fetch_groupsendrecvhandler_by_groupid(std::string key);
+
+    void remove_groupsendrecv_handler(std::string groupId);
 
 }
 

@@ -8,7 +8,7 @@ public class Constants {
     public static final Long IDLE_WEBSOCKET_TIMEOUT = 30 * 60000L;
 
     // SSL
-    public static final String CREDENTIAL = "password";
+    public static final String CREDENTIAL = "pttdemo";
     public static final String JKSFILE = "server.jks";
     public static final String HOST_ADDR = "0.0.0.0";
 
@@ -20,4 +20,6 @@ public class Constants {
 
     //Default Audio Channel Id
     public static final String DEFUALT_AUDIO_CHANNEL = "AUDI0_001_CHANNEL";
+    //Default UE-GROUP Id
+    public static final String DEFUALT_AV_GROUP = "DEFAULT_AV_GROUP_100";
 }

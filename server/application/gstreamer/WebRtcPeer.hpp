@@ -8,6 +8,7 @@
 #include <gst/gst.h>
 #include <memory>
 #include <string>
+#include "push2talk_service.pb.h"
 
 using namespace std;
 
@@ -29,10 +30,13 @@ public:
     std::string channelId;
     WebRtcPeerDirection peerDirection;
     WebRtcMediaType webRtcMediaType;
+    UeMediaDirection_Direction direction;
     GstElement *webrtcElement;
     std::string sdp;
     std::string sdp_type;
     std::string videoSrcPadName;
+    std::string inputSelectorVideoPadName;
+    std::string inputSelectorAudioPadName;
 
     //Methods
     gboolean isValidSdp(void);

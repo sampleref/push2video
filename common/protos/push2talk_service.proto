@@ -15,7 +15,191 @@ service PushToTalk {
     };
     rpc checkPing (PingRequest) returns (PingResponse) {
     };
+
+    //Individual calls API WebRTC GW <-> Media GW
+	rpc createGroup (CreateGroupRequest) returns (CreateGroupResponse) {
+    };
+	rpc deleteGroup (DeleteGroupRequest) returns (DeleteGroupResponse) {
+    };
+    rpc sdpOffer (SdpOfferRequest) returns (SdpOfferResponse) {
+    };
+    rpc sdpAnswer (SdpAnswerRequest) returns (SdpAnswerResponse) {
+    };
+    rpc iceMessage (IceMessageRequest) returns (IceMessageResponse) {
+    };
+    rpc ueFloorControl (UeFloorControlRequest) returns (UeFloorControlResponse) {
+    };
+    rpc mgwFloorControl (MgwFloorControlRequest) returns (MgwFloorControlResponse) {
+    };
+    rpc ueReset (UeResetRequest) returns (UeResetResponse) {
+    };
+
 }
+
+//Individual Messages API WebRTC GW <-> Media GW
+message CreateGroupRequest {
+    string groupId = 1;
+}
+
+message CreateGroupResponse {
+    string groupId = 1;
+    Status status = 2;
+    enum Status {
+        SUCCESS = 0;
+        ALREADY_EXISTS = 1;
+        ERROR = 2;
+    }
+}
+
+message DeleteGroupRequest {
+    string groupId = 1;
+}
+
+message DeleteGroupResponse {
+    string groupId = 1;
+    Status status = 2;
+    enum Status {
+        SUCCESS = 0;
+        INVALID_ID = 1;
+        ERROR = 2;
+    }
+}
+
+message SdpOfferRequest {
+    string ueId = 1;
+    string groupId = 2;
+    string sdp = 3;
+    string ueRouteHost = 4;
+	UeMediaDirection ueMediaDirection = 5;
+}
+
+message SdpOfferResponse {
+    string ueId = 1;
+    string groupId = 2;
+    string mgwRouteHost = 3;
+    Status status = 4;
+    enum Status {
+        SUCCESS = 0;
+        INVALID_GROUP = 1;
+        ERROR = 2;
+    }
+	UeMediaDirection ueMediaDirection = 5;
+}
+
+message SdpAnswerRequest {
+    string ueId = 1;
+    string groupId = 2;
+    string sdp = 3;
+    string mgwRouteHost = 4;
+	UeMediaDirection ueMediaDirection = 5;
+}
+
+message SdpAnswerResponse {
+    string ueId = 1;
+    string groupId = 2;
+    string ueRouteHost = 3;
+	UeMediaDirection ueMediaDirection = 4;
+}
+
+message IceMessageRequest {
+    string ueId = 1;
+    string groupId = 2;
+    string ice = 3;
+    string mLineIndex = 4;
+    string ueRouteHost = 5;
+    string mgwRouteHost = 6;
+	UeMediaDirection ueMediaDirection = 7;
+}
+
+message IceMessageResponse {
+    string ueId = 1;
+    string groupId = 2;
+    string ueRouteHost = 3;
+    string mgwRouteHost = 4;
+	UeMediaDirection ueMediaDirection = 5;
+}
+
+message UeFloorControlRequest {
+    string ueId = 1;
+    string groupId = 2;
+    string ueRouteHost = 3;
+    Action action = 4;
+    enum Action {
+        ACQUIRE = 0;
+        RELEASE = 1;
+    }
+	UeMediaDirection ueMediaDirection = 5;
+}
+
+message UeFloorControlResponse {
+    string ueId = 1;
+    string groupId = 2;
+    Action action = 3;
+    enum Action {
+        GRANTED = 0;
+        REJECTED = 1;
+		INVALID_UE = 2;
+		DONE = 4;
+    }
+	UeMediaDirection ueMediaDirection = 4;
+}
+
+message MgwFloorControlRequest {
+    string ueId = 1;
+    string groupId = 2;
+    string mgwRouteHost = 3;
+    Action action = 4;
+    enum Action {
+        REVOKED = 0;
+    }
+	UeMediaDirection ueMediaDirection = 5;
+}
+
+message MgwFloorControlResponse {
+    string ueId = 1;
+    string groupId = 2;
+	UeMediaDirection ueMediaDirection = 3;
+}
+
+message UeResetRequest {
+    string ueId = 1;
+    string groupId = 2;
+	UeMediaDirection ueMediaDirection = 3;
+}
+
+message UeResetResponse {
+    string ueId = 1;
+    string groupId = 2;
+	UeMediaDirection ueMediaDirection = 3;
+}
+
+message UeMediaDirection {
+	Direction direction = 1;
+    enum Direction {
+        SENDER = 0;
+		RECEIVER = 1;
+    }
+}
+
+//Individual Messages API WebRTC GW <-> Media GW - END
+//Individual Messages API Composite
+message GroupUeMessage {
+    oneof message {
+        SdpOfferRequest sdpOfferRequest = 1;
+        SdpOfferResponse sdpOfferResponse = 2;
+        SdpAnswerRequest sdpAnswerRequest = 3;
+        SdpAnswerResponse sdpAnswerResponse = 4;
+        IceMessageRequest iceMessageRequest = 5;
+        IceMessageResponse iceMessageResponse = 6;
+        UeFloorControlRequest ueFloorControlRequest = 7;
+        UeFloorControlResponse ueFloorControlResponse = 8;
+        MgwFloorControlRequest mgwFloorControlRequest = 9;
+        MgwFloorControlResponse mgwFloorControlResponse = 10;
+        UeResetRequest ueResetRequest = 11;
+        UeResetResponse ueResetResponse = 12;
+    }
+}
+//Individual Messages API Composite Browser App <---web socket---> WebRTC GW - END
 
 message SignallingStart {
     string hostnamePort = 1;
@@ -107,6 +291,7 @@ message PeerMessageRequest {
         SdpMessage sdpMessage = 4;
         IceMessage iceMessage = 5;
         ChannelStatusMessage channelStatusMessage = 6;
+        GroupUeMessage groupUeMessage = 8;
     }
     repeated string peersInChannel = 7;
 }

@@ -19,6 +19,10 @@ public class Push2VideoClient {
         push2VideoGrpcClient = Push2VideoGrpcClientImpl.getInstance(Push2VideoUtils.getEnv(Constants.SERVER_HOST_KEY, Constants.SERVER_HOST_DEF), Constants.GRPC_SERVER_PORT);
     }
 
+    public Push2VideoGrpcClientImpl getGrpcClient(){
+        return push2VideoGrpcClient;
+    }
+
     public void updateSignallingStart(String clientHostname, int clientPort) {
         push2VideoGrpcClient.checkPing();
         push2VideoGrpcClient.signallingStarted(clientHostname, clientPort);
@@ -34,6 +38,11 @@ public class Push2VideoClient {
             return true;
         }
         return false;
+    }
+
+    public boolean sendUeDisconnectedMessage(String ueId) {
+        UeResetRequest ueResetRequest = UeResetRequest.newBuilder().setUeId(ueId).setGroupId(Constants.DEFUALT_AV_GROUP).build();
+        return push2VideoGrpcClient.ueReset(ueResetRequest);
     }
 
     public boolean sendPeerSdpIceMessages(String peerId, PeerMessageRequest peerMessageRequest) {

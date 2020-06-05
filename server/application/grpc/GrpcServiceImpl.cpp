@@ -17,6 +17,7 @@ using grpc::Status;
 #include "GrpcService.hpp"
 #include "../gstreamer/AudioPipelineHandler.hpp"
 #include "../gstreamer/VideoPipelineHandler.hpp"
+#include "../gstreamer/GroupSendRecvHandler.hpp"
 #include "../utils/Push2TalkUtils.hpp"
 
 GST_DEBUG_CATEGORY_EXTERN (push2talk_gst);
@@ -53,6 +54,73 @@ void PushToTalkServiceClient::sendPing(std::string message) {
     }
 }
 
+//Individual API's
+
+void PushToTalkServiceClient::sendSdpOfferRequest(SdpOfferRequest sdpOfferRequest) {
+    ClientContext clientContextSdpOffer;
+    clientContextSdpOffer.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(5));
+    SdpOfferResponse sdpOfferResponse;
+    std::string messageInJson;
+    google::protobuf::util::JsonOptions jsonOptions;
+    jsonOptions.always_print_primitive_fields = true;
+    jsonOptions.preserve_proto_field_names = true;
+    google::protobuf::util::MessageToJsonString(sdpOfferRequest, &messageInJson, jsonOptions);
+    GST_INFO("Sending message SdpOffer %s ", messageInJson.c_str());
+    if (push2talk_stub) {
+        push2talk_stub->sdpOffer(&clientContextSdpOffer, sdpOfferRequest, &sdpOfferResponse);
+    }
+    GST_INFO("Sent SDP Offer to %s ",
+             UeMediaDirection_Direction_Name(sdpOfferRequest.uemediadirection().direction()).c_str());
+}
+
+void PushToTalkServiceClient::sendSdpAnswerRequest(SdpAnswerRequest sdpAnswerRequest) {
+    ClientContext clientContextSdpAnswer;
+    clientContextSdpAnswer.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(5));
+    SdpAnswerResponse sdpAnswerResponse;
+    std::string messageInJson;
+    google::protobuf::util::JsonOptions jsonOptions;
+    jsonOptions.always_print_primitive_fields = true;
+    jsonOptions.preserve_proto_field_names = true;
+    google::protobuf::util::MessageToJsonString(sdpAnswerRequest, &messageInJson, jsonOptions);
+    GST_INFO("Sending message SdpAnswer %s ", messageInJson.c_str());
+    if (push2talk_stub) {
+        push2talk_stub->sdpAnswer(&clientContextSdpAnswer, sdpAnswerRequest, &sdpAnswerResponse);
+    }
+    GST_INFO("Sent SDP Answer Message to %s ",
+             UeMediaDirection_Direction_Name(sdpAnswerRequest.uemediadirection().direction()).c_str());
+}
+
+void PushToTalkServiceClient::sendIceMessageRequest(IceMessageRequest iceMessageRequest) {
+    ClientContext clientContextIceMessage;
+    clientContextIceMessage.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(30));
+    IceMessageResponse iceMessageResponse;
+    std::string messageInJson;
+    google::protobuf::util::JsonOptions jsonOptions;
+    jsonOptions.always_print_primitive_fields = true;
+    jsonOptions.preserve_proto_field_names = true;
+    google::protobuf::util::MessageToJsonString(iceMessageRequest, &messageInJson, jsonOptions);
+    GST_DEBUG("Sending message %s ", messageInJson.c_str());
+    if (push2talk_stub) {
+        push2talk_stub->iceMessage(&clientContextIceMessage, iceMessageRequest, &iceMessageResponse);
+    }
+}
+
+MgwFloorControlResponse
+PushToTalkServiceClient::sendMgwFloorControlRequest(MgwFloorControlRequest mgwFloorControlRequest) {
+    ClientContext clientContextMgwFloorControl;
+    MgwFloorControlResponse mgwFloorControlResponse;
+    std::string messageInJson;
+    google::protobuf::util::JsonOptions jsonOptions;
+    jsonOptions.always_print_primitive_fields = true;
+    jsonOptions.preserve_proto_field_names = true;
+    google::protobuf::util::MessageToJsonString(mgwFloorControlRequest, &messageInJson, jsonOptions);
+    GST_INFO("Sending message %s ", messageInJson.c_str());
+    if (push2talk_stub) {
+        push2talk_stub->mgwFloorControl(&clientContextMgwFloorControl, mgwFloorControlRequest,
+                                        &mgwFloorControlResponse);
+    }
+}
+
 class PushToTalkServiceImpl final : public PushToTalk::Service {
 
     ::grpc::Status sendPeerMessage(::grpc::ServerContext *context, const ::PeerMessageRequest *request,
@@ -76,7 +144,9 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
                     }
                     break;
                 case PeerStatusMessage_Status_AUDIO_RESET:
-                    audioPipelineHandlerPtr->remove_webrtc_audio_sender_receiver(request->peerid());
+                    if (audioPipelineHandlerPtr) {
+                        audioPipelineHandlerPtr->remove_webrtc_audio_sender_receiver(request->peerid());
+                    }
                     break;
                 case PeerStatusMessage_Status_VIDEO_RESET:
                     if (videoPipelineHandlerPtr) {
@@ -93,13 +163,14 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
                 switch (request->sdpmessage().direction()) {
                     case SdpMessage_Direction_SENDER:
                         switch (request->sdpmessage().mediatype()) {
-                            case SdpMessage_MediaType_AUDIO:
+                            case SdpMessage_MediaType_AUDIO: {
                                 //Start sender receiver webrtcbin's
                                 audioPipelineHandlerPtr->add_webrtc_audio_sender_receiver(request->peerid());
                                 audioPipelineHandlerPtr->apply_webrtc_audio_sender_sdp(request->peerid(),
                                                                                        request->sdpmessage().sdp(),
                                                                                        request->sdpmessage().type());
                                 break;
+                            }
                             case SdpMessage_MediaType_VIDEO: {
                                 if (videoPipelineHandlerPtr == NULL) {
                                     videoPipelineHandlerPtr = std::make_shared<VideoPipelineHandler>();
@@ -157,11 +228,12 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
                 switch (request->icemessage().direction()) {
                     case IceMessage_Direction_SENDER:
                         switch (request->icemessage().mediatype()) {
-                            case IceMessage_MediaType_AUDIO:
+                            case IceMessage_MediaType_AUDIO: {
                                 audioPipelineHandlerPtr->apply_webrtc_audio_sender_ice(request->peerid(),
                                                                                        request->icemessage().ice(),
                                                                                        request->icemessage().mlineindex());
                                 break;
+                            }
                             case IceMessage_MediaType_VIDEO: {
                                 if (videoPipelineHandlerPtr) {
                                     videoPipelineHandlerPtr->apply_webrtc_video_sender_ice(request->peerid(),
@@ -226,6 +298,103 @@ class PushToTalkServiceImpl final : public PushToTalk::Service {
         GST_INFO("Signalling Started from '%s' ", request->hostnameport().c_str());
         push2talkUtils::pushToTalkServiceClientPtr = createGrpcClient(request->hostnameport());
         push2talkUtils::pushToTalkServiceClientPtr->sendPing("Hello Signalling, Welcome");
+        return grpc::Status::OK;
+    }
+
+    ::grpc::Status
+    createGroup(::grpc::ServerContext *context, const ::CreateGroupRequest *request, ::CreateGroupResponse *response) {
+        GroupSendRecvHandlerPtr groupSendRecvHandlerPtr = push2talkUtils::fetch_groupsendrecvhandler_by_groupid(
+                request->groupid());
+        if (groupSendRecvHandlerPtr == NULL) {
+            groupSendRecvHandlerPtr = std::make_shared<GroupSendRecvHandler>();
+            push2talkUtils::groupSendRecvHandlers[request->groupid()] = groupSendRecvHandlerPtr;
+            groupSendRecvHandlerPtr->groupId = request->groupid();
+            groupSendRecvHandlerPtr->currentSenderUeId = ""; //Default
+        }
+        groupSendRecvHandlerPtr->create_group(request->groupid());
+        return grpc::Status::OK;
+    }
+
+    ::grpc::Status
+    deleteGroup(::grpc::ServerContext *context, const ::DeleteGroupRequest *request, ::DeleteGroupResponse *response) {
+        GroupSendRecvHandlerPtr groupSendRecvHandlerPtr = push2talkUtils::fetch_groupsendrecvhandler_by_groupid(
+                request->groupid());
+        if (groupSendRecvHandlerPtr != NULL) {
+            groupSendRecvHandlerPtr->close_pipeline_group();
+        } else {
+            GST_ERROR("No valid pipeline handler found for group %s ", request->groupid().c_str());
+        }
+        return grpc::Status::OK;
+    }
+
+    ::grpc::Status
+    sdpOffer(::grpc::ServerContext *context, const ::SdpOfferRequest *request, ::SdpOfferResponse *response) {
+        GroupSendRecvHandlerPtr groupSendRecvHandlerPtr = push2talkUtils::fetch_groupsendrecvhandler_by_groupid(
+                request->groupid());
+        if (groupSendRecvHandlerPtr != NULL) {
+            groupSendRecvHandlerPtr->av_add_ue(request->ueid(), request->uemediadirection());
+            groupSendRecvHandlerPtr->apply_webrtc_peer_sdp(request->ueid(), request->sdp(), "offer",
+                                                           request->uemediadirection());
+            UeMediaDirection direction;
+            direction.set_direction(UeMediaDirection_Direction_RECEIVER);
+            groupSendRecvHandlerPtr->av_add_ue(request->ueid(), direction);
+        } else {
+            GST_ERROR("No valid pipeline handler found for group %s ", request->groupid().c_str());
+        }
+        return grpc::Status::OK;
+    }
+
+    ::grpc::Status
+    iceMessage(::grpc::ServerContext *context, const ::IceMessageRequest *request, ::IceMessageResponse *response) {
+        GroupSendRecvHandlerPtr groupSendRecvHandlerPtr = push2talkUtils::fetch_groupsendrecvhandler_by_groupid(
+                request->groupid());
+        if (groupSendRecvHandlerPtr != NULL) {
+            groupSendRecvHandlerPtr->ue_ice_message(request->ice(), request->mlineindex(), request->ueid(),
+                                                    request->uemediadirection());
+        } else {
+            GST_ERROR("No valid pipeline handler found for group %s ", request->groupid().c_str());
+        }
+        return grpc::Status::OK;
+    }
+
+    ::grpc::Status
+    sdpAnswer(::grpc::ServerContext *context, const ::SdpAnswerRequest *request, ::SdpAnswerResponse *response) {
+        GroupSendRecvHandlerPtr groupSendRecvHandlerPtr = push2talkUtils::fetch_groupsendrecvhandler_by_groupid(
+                request->groupid());
+        if (groupSendRecvHandlerPtr != NULL) {
+            groupSendRecvHandlerPtr->apply_incoming_sdp(request->ueid(), request->sdp(), "answer");
+        } else {
+            GST_ERROR("No valid pipeline handler found for group %s ", request->groupid().c_str());
+        }
+        return grpc::Status::OK;
+    }
+
+    ::grpc::Status ueFloorControl(::grpc::ServerContext *context, const ::UeFloorControlRequest *request,
+                                  ::UeFloorControlResponse *response) {
+        GroupSendRecvHandlerPtr groupSendRecvHandlerPtr = push2talkUtils::fetch_groupsendrecvhandler_by_groupid(
+                request->groupid());
+        if (groupSendRecvHandlerPtr != NULL) {
+            UeFloorControlResponse_Action floorControlResponseAction = groupSendRecvHandlerPtr->update_ue_floor_control(
+                    request->ueid(), request->action());
+            response->set_ueid(request->ueid());
+            response->set_groupid(request->groupid());
+            response->set_action(floorControlResponseAction);
+        } else {
+            GST_ERROR("No valid pipeline handler found for group %s ", request->groupid().c_str());
+        }
+        return grpc::Status::OK;
+    }
+
+    ::grpc::Status
+    ueReset(::grpc::ServerContext *context, const ::UeResetRequest *request, ::UeResetResponse *response) {
+        GroupSendRecvHandlerPtr groupSendRecvHandlerPtr = push2talkUtils::fetch_groupsendrecvhandler_by_groupid(
+                request->groupid());
+        if (groupSendRecvHandlerPtr != NULL) {
+            groupSendRecvHandlerPtr->reset_ue(request->ueid(), true, UeMediaDirection_Direction_SENDER);
+            groupSendRecvHandlerPtr->reset_ue(request->ueid(), true, UeMediaDirection_Direction_RECEIVER);
+        } else {
+            GST_ERROR("No valid pipeline handler found for group %s ", request->groupid().c_str());
+        }
         return grpc::Status::OK;
     }
 };
