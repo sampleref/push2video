@@ -37,6 +37,8 @@ find_package(CURL REQUIRED)
 find_package(Protobuf REQUIRED)
 find_package(GRPC REQUIRED)
 
+set(ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/usr/local/lib/gstreamer-1.0/pkgconfig")
+
 # Use second file(GLOB PROTOS ..) while building for local binary and comment(#) first one
 file(GLOB PROTOS "${CMAKE_CURRENT_SOURCE_DIR}/protos/*.proto")
 #file(GLOB PROTOS "${CMAKE_CURRENT_SOURCE_DIR}/../common/protos/*.proto")
@@ -53,6 +55,8 @@ pkg_check_modules(GSTLIBS REQUIRED
         gstreamer-webrtc-1.0
         gstreamer-sdp-1.0
         gstreamer-pbutils-1.0
+        gstreamer-rtp-1.0
+        gstrtpmanager
         libsoup-2.4
         json-glib-1.0
         gstreamer-rtsp-server-1.0)
