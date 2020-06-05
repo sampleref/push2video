@@ -50,6 +50,11 @@
 			background-color: #df5418;
 		}
 
+		.td_list {
+			display: block;
+			clear:both;
+		}
+
     </style>
 </head>
 
@@ -63,7 +68,7 @@
     </div>
 
     <div style="width: 800px; float: left;">
-        <video id="videoId" autoplay muted controls style="width:800px;height:600px" class="webrtc_video"></video>
+        <video id="videoId" autoplay muted controls class="webrtc_video"></video>
 
         <br />
 
@@ -86,6 +91,18 @@
                 <td><label id="peerId"></label></td>
                 <td><input type="button" class="buttonStart" style="height:50px;width=50px" id="joinAudio" onclick="joinAudio()" value="Join Audio"></input></td>
                 <td><input type="button" class="buttonStop" style="height:50px;width=50px" id="quitAudio" onclick="quitAudio()" value="Leave Audio"></input></td>
+            </tr>
+            <tr>
+                <td class="td_list">
+                    <video id="videoSendRecv" autoplay muted controls class="webrtc_video"></video>
+                    <video id="videoSendRecvSelf" autoplay muted controls style="width:100px;height:100px" class="webrtc_video"></video>
+                </td>
+                <td class="td_list">
+                    <input type="button" class="buttonStart" style="height:50px;width=50px" id="startSendRecv" onclick="startSendRecv()" value="Start AV">
+                    <input type="button" class="buttonStop" style="height:50px;width=50px" id="stopSendRecv" onclick="stopSendRecv()" value="Stop AV">
+                </td>
+                <td class="td_list"><input type="button" class="buttonStart" style="height:50px;width=50px" id="joinSendRecv" onclick="joinSendRecv()" value="Enter Group"></input></td>
+                <td class="td_list"><input type="button" class="buttonStop" style="height:50px;width=50px" id="quitSendRecv" onclick="quitSendRecv()" value="Exit Group"></input></td>
             </tr>
         </table>
     </div>

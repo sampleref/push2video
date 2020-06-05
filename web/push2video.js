@@ -1,12 +1,17 @@
 var videosrc;
+var avSendRecv;
+var avSendRecvSelf;
 var audioRecv;
+var peerConnectionAVSend;
+var peerConnectionAVRecv;
 var peerConnectionVideoSend;
 var peerConnectionVideoRecv;
 var peerConnectionAudioSend;
 var peerConnectionAudioRecv;
-var peerConnectionConfig = { 'iceServers': [{ 'url': 'stun:stun.services.mozilla.com' }, { 'url': 'stun:stun.l.google.com:19302' }] };
+var peerConnectionConfig = { 'iceServers': [{ 'url': 'stun:stun.services.mozilla.com' }, { 'url': 'stun:stun.l.google.com:19302' }]};
 
 var channelIdVar = "AUDI0_001_CHANNEL";
+var groupIdVar = "DEFAULT_AV_GROUP_100";
 var peerIdVar;
 var streamVar;
 var videoLock = true;
@@ -32,6 +37,8 @@ function getUserMediaError(error) {
 function pageReady() {
     videosrc = document.getElementById("videoId");
 	audioRecv = document.getElementById("audioRecv");
+	avSendRecv = document.getElementById("videoSendRecv");
+	avSendRecvSelf = document.getElementById("videoSendRecvSelf");
     serverConnection = new WebSocket('wss://' + window.location.hostname + ':8995/signalling');
 	document.getElementById("ws_msg").innerHTML  = "Please open url: <a href='https://"
 													+ window.location.hostname
@@ -93,8 +100,8 @@ function clearConnectionStats() {
 }
 
 function startConnectionStats() {
-  if(peerConnectionVideoSend != null){
-		peerConnectionVideoSend.getStats(null).then(stats => {
+  if(peerConnectionAVSend != null){
+		peerConnectionAVSend.getStats(null).then(stats => {
 			var statsOutputVideo = "";
 			var statsOutputAudio = "";
 			stats.forEach(report => {
@@ -113,8 +120,8 @@ function startConnectionStats() {
 			document.getElementById("video_send_stats").innerHTML  = statsOutputVideo;
 	   });
   }
-  if(peerConnectionVideoRecv != null){
-		peerConnectionVideoRecv.getStats(null).then(stats => {
+  if(peerConnectionAVRecv != null){
+		peerConnectionAVRecv.getStats(null).then(stats => {
 			var statsOutputVideo = "";
 			var statsOutputAudio = "";
 			stats.forEach(report => {
@@ -133,6 +140,149 @@ function startConnectionStats() {
 			document.getElementById("video_recv_stats").innerHTML  = statsOutputVideo;
 	   });
   }
+}
+
+function joinSendRecv(){
+	var offerConstraintsSend = {
+        "optional": [
+          { "OfferToReceiveAudio": "false" },
+          { "OfferToReceiveVideo": "false" },
+        ]
+    };
+	var offerConstraintsRecv = {
+        "optional": [
+          { "OfferToReceiveAudio": "true" },
+          { "OfferToReceiveVideo": "false" },
+        ]
+    };
+	// Create peerConnection and attach onicecandidate, ontrack callbacks
+	try {
+		peerConnectionAVSend = new RTCPeerConnection(peerConnectionConfig);
+		peerConnectionAVSend.addEventListener("iceconnectionstatechange", ev => {
+		  console.log('AV Send ice connection state ' + peerConnectionAVSend.iceConnectionState);
+		}, false);
+	} catch(err) {
+		console.error("Error creating peerConnectionAVSend/Recv: " + err);
+	}
+	avSendRecvSelf.srcObject = streamVar;
+	streamVar.getTracks().forEach(track => {
+		if(track.kind == 'audio'){
+			console.log('Adding audio');
+			peerConnectionAVSend.addTrack(track, streamVar);
+		}
+		if(track.kind == 'video'){
+			console.log('Adding video');
+			peerConnectionAVSend.addTrack(track, streamVar);
+		}
+	});
+	avSendRecvSelf.srcObject.getTracks().forEach(track => {
+		if(track.kind == 'audio'){
+			console.log('Disabling audio');
+			track.enabled = false;
+		}
+		if(track.kind == 'video'){
+			console.log('Disabling video');
+			track.enabled = false;
+		}
+	});
+
+    peerConnectionAVSend.onicecandidate = gotIceCandidateAVSend;
+    peerConnectionAVSend.createOffer(gotDescriptionAVSend, createOfferError, offerConstraintsSend);
+}
+
+function createGroupAVReceiver(){
+	peerConnectionAVRecv = new RTCPeerConnection(peerConnectionConfig);
+	peerConnectionAVRecv.addEventListener("iceconnectionstatechange", ev => {
+		  console.log('AV Recv ice connection state ' + peerConnectionAVRecv.iceConnectionState);
+		}, false);
+	peerConnectionAVRecv.onicecandidate = gotIceCandidateAVRecv;
+	peerConnectionAVRecv.ontrack = gotRemoteAVRecvStream;
+}
+
+function quitSendRecv(){
+	console.log("Closing quitSend/Recv");
+    if(peerConnectionAVSend == null){
+        alert('peerConnectionAVSend/Recv Already Stopped!');
+        return;
+    }
+    peerConnectionAVSend.close();
+	peerConnectionAVRecv.close();
+	setStatusText('green', '');
+	clearConnectionStats();
+    peerConnectionAVSend = null;
+	peerConnectionAVRecv = null;
+    msg = {
+		peerId: peerIdVar,
+		channelId: channelIdVar,
+		groupUeMessage: {
+			ueResetRequest: {
+				ueId: peerIdVar,
+				groupId: groupIdVar
+			}
+		}
+	};
+    serverConnection.send(JSON.stringify(msg));
+    console.debug("Sent peerConnectionAVSend/Recv reset");
+	avSendRecvSelf.srcObject = null;
+	avSendRecv.srcObject  = null;
+}
+
+function startSendRecv(){
+	avSendRecvSelf.srcObject.getTracks().forEach(track => {
+		if(track.kind == 'audio'){
+			console.log('Enabling audio');
+			track.enabled = true;
+		}
+		if(track.kind == 'video'){
+			console.log('Enabling video');
+			track.enabled = true;
+		}
+	});
+	msg = {
+		peerId: peerIdVar,
+		channelId: channelIdVar,
+		groupUeMessage: {
+			ueFloorControlRequest: {
+				ueId: peerIdVar,
+				groupId: groupIdVar,
+				action: "ACQUIRE",
+				ueMediaDirection: {
+					direction: "SENDER"
+				}
+			}
+		}
+	};
+    serverConnection.send(JSON.stringify(msg));
+    console.debug("Sent peerConnectionAVSend/Recv Aquire");
+}
+
+function stopSendRecv(){
+	msg = {
+		peerId: peerIdVar,
+		channelId: channelIdVar,
+		groupUeMessage: {
+			ueFloorControlRequest: {
+				ueId: peerIdVar,
+				groupId: groupIdVar,
+				action: "RELEASE",
+				ueMediaDirection: {
+					direction: "SENDER"
+				}
+			}
+		}
+	};
+    serverConnection.send(JSON.stringify(msg));
+    console.debug("Sent peerConnectionAVSend/Recv Release");
+	avSendRecvSelf.srcObject.getTracks().forEach(track => {
+		if(track.kind == 'audio'){
+			console.log('Disabling audio');
+			track.enabled = false;
+		}
+		if(track.kind == 'video'){
+			console.log('Disabling video');
+			track.enabled = false;
+		}
+	});
 }
 
 //Once on start create peerConnection with callbacks and then send ADD_PEER
@@ -299,9 +449,36 @@ function gotRemoteVideoStream(event) {
     videosrc.srcObject  = event.streams[0];
 }
 
+function gotRemoteAVRecvStream(event) {
+    console.log('got remote av recv stream ', event);
+    avSendRecv.srcObject  = event.streams[0];
+}
+
 function gotRemoteAudioStream(event) {
     console.log('got remote audio stream ', event);
     audioRecv.srcObject  = event.streams[0];
+}
+
+function gotDescriptionAVRecvAnswer(description) {
+    console.log('got gotDescriptionAVRecvAnswer ', description);
+    peerConnectionAVRecv.setLocalDescription(description, function() {
+        msg = {
+			peerId: peerIdVar,
+			channelId: channelIdVar,
+			groupUeMessage: {
+				sdpAnswerRequest: {
+					sdp: description.sdp,
+					ueId: peerIdVar,
+					groupId: groupIdVar,
+					ueMediaDirection: {
+						direction: "RECEIVER"
+					}
+				}
+			}
+		};
+        serverConnection.send(JSON.stringify(msg));
+        console.debug("Sent gotDescriptionAVRecvAnswer sdp");
+    }, function() { console.log('set gotDescriptionAVRecvAnswer description error') });
 }
 
 function gotDescriptionVideoRecv(description) {
@@ -321,6 +498,48 @@ function gotDescriptionVideoRecv(description) {
         serverConnection.send(JSON.stringify(msg));
         console.debug("Sent gotDescriptionVideoRecv sdp");
     }, function() { console.log('set gotDescriptionVideoRecv description error') });
+}
+
+function gotDescriptionAVSend(description){
+	console.log('gotDescriptionAVSend ', description);
+    peerConnectionAVSend.setLocalDescription(description);
+	msg = {
+		peerId: peerIdVar,
+		channelId: channelIdVar,
+		groupUeMessage: {
+			sdpOfferRequest: {
+				sdp: description.sdp,
+				ueId: peerIdVar,
+				groupId: groupIdVar,
+				ueMediaDirection: {
+					direction: "SENDER"
+				}
+			}
+		}
+	};
+	serverConnection.send(JSON.stringify(msg));
+	console.debug("Sent gotDescriptionAVSendRecv sdp");
+}
+
+function gotDescriptionAVRecv(description){
+	console.log('gotDescriptionAVRecv ', description);
+    peerConnectionAVRecv.setLocalDescription(description);
+	msg = {
+		peerId: peerIdVar,
+		channelId: channelIdVar,
+		groupUeMessage: {
+			sdpOfferRequest: {
+				sdp: description.sdp,
+				ueId: peerIdVar,
+				groupId: groupIdVar,
+				ueMediaDirection: {
+					direction: "RECEIVER"
+				}
+			}
+		}
+	};
+	serverConnection.send(JSON.stringify(msg));
+	console.debug("Sent gotDescriptionAVSendRecv sdp");
 }
 
 function gotDescriptionVideoSend(description){
@@ -376,6 +595,54 @@ function gotDescriptionAudioRecv(description){
         serverConnection.send(JSON.stringify(msg));
         console.debug("Sent gotDescriptionAudioRecv sdp");
     }, function() { console.log('set gotDescriptionAudioRecv description error') });
+}
+
+function gotIceCandidateAVSend(event) {
+    console.debug("Ice Candidate gotIceCandidateAVSend: ", event);
+    if (event.candidate != null) {
+		msg = {
+            peerId: peerIdVar,
+			channelId: channelIdVar,
+			groupUeMessage: {
+				iceMessageRequest: {
+					ice: event.candidate.candidate,
+					mLineIndex: event.candidate.sdpMLineIndex,
+					ueId: peerIdVar,
+					groupId: groupIdVar,
+					ueMediaDirection: {
+						direction: "SENDER"
+					}
+				}
+			}
+        };
+
+        console.debug(msg);
+        serverConnection.send(JSON.stringify(msg));
+    }
+}
+
+function gotIceCandidateAVRecv(event) {
+    console.debug("Ice Candidate gotIceCandidateAVRecv: ", event);
+    if (event.candidate != null) {
+		msg = {
+            peerId: peerIdVar,
+			channelId: channelIdVar,
+			groupUeMessage: {
+				iceMessageRequest: {
+					ice: event.candidate.candidate,
+					mLineIndex: event.candidate.sdpMLineIndex,
+					ueId: peerIdVar,
+					groupId: groupIdVar,
+					ueMediaDirection: {
+						direction: "RECEIVER"
+					}
+				}
+			}
+        };
+
+        console.debug(msg);
+        serverConnection.send(JSON.stringify(msg));
+    }
 }
 
 function gotIceCandidateVideoSend(event) {
@@ -523,7 +790,7 @@ function gotMessageFromServer(message) {
                 peerConnectionVideoRecv.createAnswer(gotDescriptionVideoRecv, createAnswerError);
             });
         }
-    } 
+    }
 	else if (signal.iceMessage) {
 		if(signal.iceMessage.direction == 'SENDER' && signal.iceMessage.mediaType == 'AUDIO'){
 			iceMsg = {
@@ -552,6 +819,55 @@ function gotMessageFromServer(message) {
                 sdpMLineIndex: signal.iceMessage.mLineIndex
             };
             peerConnectionVideoRecv.addIceCandidate(new RTCIceCandidate(iceMsg));
+        }
+    }
+	else if (signal.groupUeMessage) {
+		if(signal.groupUeMessage.sdpAnswerRequest){
+			if(signal.groupUeMessage.sdpAnswerRequest.ueMediaDirection.direction == 'SENDER'){
+				sdpMsg = {
+					sdp: signal.groupUeMessage.sdpAnswerRequest.sdp,
+					type: "answer"
+				};
+				peerConnectionAVSend.setRemoteDescription(new RTCSessionDescription(sdpMsg), function() {
+				});
+			}
+			if(signal.groupUeMessage.sdpAnswerRequest.ueMediaDirection.direction == 'RECEIVER'){
+				sdpMsg = {
+					sdp: signal.groupUeMessage.sdpAnswerRequest.sdp,
+					type: "answer"
+				};
+				peerConnectionAVRecv.setRemoteDescription(new RTCSessionDescription(sdpMsg), function() {
+				});
+			}
+		}
+		if(signal.groupUeMessage.sdpOfferRequest){
+			createGroupAVReceiver();
+			if(signal.groupUeMessage.sdpOfferRequest.ueMediaDirection.direction == 'RECEIVER'){
+				sdpMsg = {
+					sdp: signal.groupUeMessage.sdpOfferRequest.sdp,
+					type: "offer"
+				};
+				peerConnectionAVRecv.setRemoteDescription(new RTCSessionDescription(sdpMsg), function() {
+					peerConnectionAVRecv.createAnswer(gotDescriptionAVRecvAnswer, createAnswerError);
+				});
+			}
+		}
+		if(signal.groupUeMessage.iceMessageRequest){
+			if(signal.groupUeMessage.iceMessageRequest.ueMediaDirection.direction == 'SENDER'){
+				iceMsg = {
+					candidate: signal.groupUeMessage.iceMessageRequest.ice,
+					sdpMLineIndex: signal.groupUeMessage.iceMessageRequest.mLineIndex
+				};
+				peerConnectionAVSend.addIceCandidate(new RTCIceCandidate(iceMsg));
+			}
+			if(signal.groupUeMessage.iceMessageRequest.ueMediaDirection.direction == 'RECEIVER'){
+				iceMsg = {
+					candidate: signal.groupUeMessage.iceMessageRequest.ice,
+					sdpMLineIndex: signal.groupUeMessage.iceMessageRequest.mLineIndex
+				};
+				peerConnectionAVRecv.addIceCandidate(new RTCIceCandidate(iceMsg));
+			}
+
         }
     }
 }
