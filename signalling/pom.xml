@@ -13,7 +13,7 @@
         <protobuf.version>3.7.0</protobuf.version>
         <!-- Web socket server -->
         <jetty.web.server>9.4.17.v20190418</jetty.web.server>
-        <log4j.version>2.14.1</log4j.version>
+        <log4j.version>2.17.0</log4j.version>
 
         <!-- Plugins version -->
         <os.maven.plugin.version>1.5.0.Final</os.maven.plugin.version>
